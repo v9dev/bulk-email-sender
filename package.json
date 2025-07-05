@@ -1,0 +1,24 @@
+{
+  "name": "bulk-email-sender",
+  "version": "1.0.0",
+  "description": "Web-based bulk email sender with WYSIWYG editor",
+  "main": "src/app.ts",
+  "scripts": {
+    "dev": "bun run --watch src/app.ts",
+    "build": "bun build src/app.ts --outdir=dist",
+    "start": "bun run src/app.ts"
+  },
+  "dependencies": {
+    "hono": "^3.12.0",
+    "nodemailer": "^6.9.8",
+    "xlsx": "^0.18.5",
+    "multer": "^1.4.5-lts.1",
+    "csv-stringify": "^6.4.4",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^6.4.14",
+    "@types/multer": "^1.4.11",
+    "typescript": "^5.3.3"
+  }
+}

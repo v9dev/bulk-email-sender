@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bulk Email Sender</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdn.quilljs.com/1.3.6/quill.snow.css"
+      rel="stylesheet"
+    />
+    <link href="/css/style.css" rel="stylesheet" />
+  </head>
+  <body>
+    <div class="container-fluid">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
+        <div class="container">
+          <a class="navbar-brand" href="/">📧 Bulk Email Sender</a>
+          <div class="navbar-nav ms-auto">
+            <a class="nav-link" href="#" onclick="showTab('compose')"
+              >Compose</a
+            >
+            <a class="nav-link" href="#" onclick="showTab('report')">Reports</a>
+          </div>
+        </div>
+      </nav>
+
+      <!-- Compose Email Tab -->
+      <div id="compose-tab" class="tab-content">
+        <div class="row">
+          <div class="col-md-6">
+            <div class="card">
+              <div
+                class="card-header d-flex justify-content-between align-items-center"
+              >
+                <h5>📮 SMTP Configuration</h5>
+                <small class="text-muted">
+                  <span id="configStatus">Loading...</span>
+                </small>
+              </div>
+              <div class="card-body">
+                <form id="emailForm">
+                  <div class="row">
+                    <div class="col-md-8">
+                      <label class="form-label">
+                        SMTP Host *
+                        <small class="text-success d-none" id="hostFromEnv"
+                          >📋 From .env</small
+                        >
+                      </label>
+                      <input
+                        type="text"
+                        class="form-control"
+                        name="smtpHost"
+                        placeholder="smtp.gmail.com"
+                        required
+                      />
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label">Port *</label>
+                      <input
+                        type="number"
+                        class="form-control"
+                        name="smtpPort"
+                        value="587"
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div class="mb-3 mt-3">
+                    <div class="form-check">
+                      <input
+                        class="form-check-input"
+                        type="checkbox"
+                        name="smtpSecure"
+                        id="smtpSecure"
+                      />
+                      <label class="form-check-label" for="smtpSecure"
+                        >Use TLS/SSL</label
+                      >
+                    </div>
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">
+                      Username *
+                      <small class="text-success d-none" id="userFromEnv"
+                        >📋 From .env</small
+                      >
+                    </label>
+                    <input
+                      type="text"
+                      class="form-control"
+                      name="smtpUser"
+                      required
+                    />
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">
+                      Password *
+                      <small class="text-success d-none" id="passFromEnv"
+                        >📋 From .env</small
+                      >
+                    </label>
+                    <input
+                      type="password"
+                      class="form-control"
+                      name="smtpPass"
+                      required
+                    />
+                  </div>
+
+                  <hr />
+
+                  <div class="mb-3">
+                    <label class="form-label">
+                      From Email *
+                      <small class="text-success d-none" id="fromEmailFromEnv"
+                        >📋 From .env</small
+                      >
+                    </label>
+                    <input
+                      type="email"
+                      class="form-control"
+                      name="fromEmail"
+                      required
+                    />
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">
+                      From Name
+                      <small class="text-success d-none" id="fromNameFromEnv"
+                        >📋 From .env</small
+                      >
+                    </label>
+                    <input
+                      type="text"
+                      class="form-control"
+                      name="fromName"
+                      placeholder="Your Name"
+                    />
+                  </div>
+
+                  <div class="alert alert-info d-none" id="envConfigAlert">
+                    <strong>📋 Environment Configuration Active</strong><br />
+                    <small
+                      >SMTP settings are loaded from your .env file. You can
+                      override them by editing the fields above.</small
+                    >
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-md-6">
+            <div class="card">
+              <div class="card-header">
+                <h5>📄 File Uploads</h5>
+              </div>
+              <div class="card-body">
+                <div class="mb-3">
+                  <label class="form-label">Excel File (Contacts) *</label>
+                  <input
+                    type="file"
+                    class="form-control"
+                    name="excelFile"
+                    accept=".xlsx,.xls"
+                    required
+                  />
+                  <small class="text-muted"
+                    >Required columns: Email. Optional: FirstName, LastName,
+                    Company, Subject</small
+                  >
+                  <br />
+                  <a
+                    href="/public/samples/sample-contacts.xlsx"
+                    class="btn btn-sm btn-outline-secondary mt-2"
+                    >📥 Download Sample</a
+                  >
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label">HTML Template (Optional)</label>
+                  <input
+                    type="file"
+                    class="form-control"
+                    name="htmlTemplate"
+                    accept=".html"
+                  />
+                  <small class="text-muted"
+                    >If provided, will override the editor content below</small
+                  >
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label"
+                    >Delay Between Emails (seconds)</label
+                  >
+                  <input
+                    type="number"
+                    class="form-control"
+                    name="delay"
+                    value="20"
+                    min="15"
+                    max="30"
+                  />
+                  <small class="text-muted"
+                    >Delay between each email (15-30 seconds recommended)</small
+                  >
+                </div>
+
+                <div class="alert alert-warning">
+                  <strong>⚠️ SMTP Provider Guidelines:</strong><br />
+                  <small>
+                    • Gmail: Use App Passwords, not regular password<br />
+                    • Outlook: Regular password usually works<br />
+                    • Respect provider sending limits
+                  </small>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="row mt-4">
+          <div class="col-12">
+            <div class="card">
+              <div class="card-header">
+                <h5>✉️ Email Content</h5>
+              </div>
+              <div class="card-body">
+                <div class="mb-3">
+                  <label class="form-label">Subject *</label>
+                  <input
+                    type="text"
+                    class="form-control"
+                    name="subject"
+                    placeholder="Hello {{FirstName}}, welcome to {{Company}}!"
+                    required
+                  />
+                  <small class="text-muted"
+                    >You can use placeholders like {{FirstName}}, {{Company}},
+                    etc.</small
+                  >
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label">Email Content</label>
+                  <div id="editor" style="height: 300px"></div>
+                  <textarea
+                    name="htmlContent"
+                    id="htmlContent"
+                    style="display: none"
+                  ></textarea>
+                  <small class="text-muted"
+                    >Use placeholders like {{FirstName}}, {{Company}} in your
+                    content</small
+                  >
+                </div>
+
+                <div class="d-flex gap-2">
+                  <button
+                    type="button"
+                    class="btn btn-primary"
+                    onclick="sendEmails()"
+                  >
+                    <span id="sendButtonText">🚀 Send Emails</span>
+                    <span
+                      id="sendButtonSpinner"
+                      class="spinner-border spinner-border-sm d-none"
+                      role="status"
+                    ></span>
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary"
+                    onclick="previewEmail()"
+                  >
+                    👁️ Preview
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Report Tab -->
+      <div id="report-tab" class="tab-content d-none">
+        <div class="row">
+          <div class="col-12">
+            <div class="card">
+              <div
+                class="card-header d-flex justify-content-between align-items-center"
+              >
+                <h5>📊 Email Reports</h5>
+                <div>
+                  <button
+                    class="btn btn-success btn-sm"
+                    onclick="exportReport('csv')"
+                  >
+                    📄 Export CSV
+                  </button>
+                  <button
+                    class="btn btn-info btn-sm"
+                    onclick="exportReport('json')"
+                  >
+                    📋 Export JSON
+                  </button>
+                  <button
+                    class="btn btn-warning btn-sm"
+                    onclick="refreshReport()"
+                  >
+                    🔄 Refresh
+                  </button>
+                  <button class="btn btn-danger btn-sm" onclick="clearLogs()">
+                    🗑️ Clear Logs
+                  </button>
+                </div>
+              </div>
+              <div class="card-body">
+                <div id="statsContainer" class="row mb-4">
+                  <!-- Stats will be loaded here -->
+                </div>
+
+                <div class="table-responsive">
+                  <table class="table table-striped">
+                    <thead>
+                      <tr>
+                        <th>Email</th>
+                        <th>Status</th>
+                        <th>Name</th>
+                        <th>Company</th>
+                        <th>Subject</th>
+                        <th>Timestamp</th>
+                        <th>Message ID</th>
+                        <th>Error</th>
+                      </tr>
+                    </thead>
+                    <tbody id="reportTableBody">
+                      <!-- Report data will be loaded here -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Preview Modal -->
+      <div class="modal fade" id="previewModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Email Preview</h5>
+              <button
+                type="button"
+                class="btn-close"
+                data-bs-dismiss="modal"
+              ></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <strong>Subject:</strong> <span id="previewSubject"></span>
+              </div>
+              <div id="previewContent"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
+    <script src="/js/app.js"></script>
+  </body>
+</html>
