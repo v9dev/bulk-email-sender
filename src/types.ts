@@ -48,3 +48,34 @@ export interface SMTPDefaults {
   fromEmail?: string;
   fromName?: string;
 }
+
+
+// Add these new interfaces to existing types.ts:
+
+export interface ScheduledJob {
+  id: string;
+  emailJob: EmailJob;
+  batchConfig?: BatchConfig;
+  scheduledTime: string;
+  notifyEmail?: string;
+  notifyBrowser?: boolean;
+  status: 'scheduled' | 'running' | 'completed' | 'failed' | 'cancelled';
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  contactCount: number;
+  subject: string;
+  useBatch: boolean;
+}
+
+export interface NotificationSettings {
+  email?: string;
+  browser?: boolean;
+}
+
+export interface ProviderLimits {
+  dailyLimit: number;
+  name: string;
+  recommendedBatchSize: number;
+  recommendedDelay: number;
+}

@@ -55,6 +55,59 @@ document.addEventListener("DOMContentLoaded", function () {
       field.addEventListener("input", updateBatchPreview);
     }
   });
+
+  // Add scheduling controls
+  const scheduleEmailCheckbox = document.getElementById("scheduleEmail");
+  if (scheduleEmailCheckbox) {
+    scheduleEmailCheckbox.addEventListener("change", function () {
+      const scheduleSettings = document.getElementById("scheduleSettings");
+      const sendButton = document.getElementById("sendButtonText");
+      const scheduleIndicator = document.getElementById("scheduleIndicator");
+
+      if (this.checked) {
+        scheduleSettings.classList.remove("d-none");
+        sendButton.textContent = "📅 Schedule Campaign";
+        scheduleIndicator.classList.remove("d-none");
+
+        // Set minimum datetime to now + 5 minutes
+        const now = new Date();
+        now.setMinutes(now.getMinutes() + 5);
+        document.getElementById("scheduledTime").min = now
+          .toISOString()
+          .slice(0, 16);
+        document.getElementById("scheduledTime").value = now
+          .toISOString()
+          .slice(0, 16);
+
+        refreshScheduledJobs();
+      } else {
+        scheduleSettings.classList.add("d-none");
+        sendButton.textContent = "🚀 Send Emails";
+        scheduleIndicator.classList.add("d-none");
+      }
+    });
+  }
+
+  // Provider detection on SMTP host change
+  const smtpHostField = document.querySelector('input[name="smtpHost"]');
+  if (smtpHostField) {
+    smtpHostField.addEventListener("blur", checkProviderLimits);
+  }
+
+  // Notification email change
+  const notifyEmailField = document.querySelector('input[name="notifyEmail"]');
+  if (notifyEmailField) {
+    notifyEmailField.addEventListener("input", checkProviderLimits);
+  }
+
+  // Request browser notification permission
+  if ("Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission();
+  }
+
+  // Start monitoring scheduled jobs
+  startScheduledJobMonitoring();
+  refreshScheduledJobs();
 });
 
 function updateBatchPreview() {
@@ -204,6 +257,170 @@ async function cancelBatch() {
   } catch (error) {
     showAlert("danger", `❌ Error cancelling batch: ${error.message}`);
   }
+}
+
+// Check provider limits
+async function checkProviderLimits() {
+  const smtpHost = document.querySelector('input[name="smtpHost"]').value;
+  const notifyEmail = document.querySelector('input[name="notifyEmail"]').value;
+
+  if (!smtpHost) return;
+
+  const formData = new FormData();
+  formData.set("smtpHost", smtpHost);
+  formData.set("hasNotification", notifyEmail ? "true" : "false");
+
+  try {
+    const response = await fetch("/provider-info", {
+      method: "POST",
+      body: formData,
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      const data = result.data;
+      const limitInfo = document.getElementById("providerLimitInfo");
+      const limitText = document.getElementById("providerLimitText");
+
+      limitText.innerHTML = `
+        <strong>${data.provider}:</strong> ${
+        data.maxContacts
+      } emails/day allowed
+        ${
+          notifyEmail
+            ? "<br><small>⚠️ 1 email reserved for notification</small>"
+            : ""
+        }
+        <br><small>💡 Recommended: ${
+          data.recommendedBatchSize
+        } emails per batch, ${data.recommendedDelay}s delay</small>
+      `;
+
+      limitInfo.style.display = "block";
+
+      // Update batch settings defaults
+      if (data.provider !== "Custom SMTP") {
+        document.querySelector('input[name="batchSize"]').value =
+          data.recommendedBatchSize;
+        document.querySelector('input[name="emailDelay"]').value =
+          data.recommendedDelay;
+      }
+    }
+  } catch (error) {
+    console.error("Error checking provider limits:", error);
+  }
+}
+
+// Refresh scheduled jobs
+async function refreshScheduledJobs() {
+  try {
+    const response = await fetch("/scheduled-jobs");
+    const result = await response.json();
+
+    if (result.success) {
+      displayScheduledJobs(result.data);
+    }
+  } catch (error) {
+    console.error("Error fetching scheduled jobs:", error);
+  }
+}
+
+// Display scheduled jobs
+function displayScheduledJobs(jobs) {
+  const container = document.getElementById("scheduledJobsList");
+
+  if (!jobs || jobs.length === 0) {
+    container.innerHTML = '<small class="text-muted">No scheduled jobs</small>';
+    return;
+  }
+
+  container.innerHTML = jobs
+    .map((job) => {
+      const scheduledDate = new Date(job.scheduled_time);
+      const statusBadge =
+        job.status === "running"
+          ? '<span class="badge bg-primary">Running</span>'
+          : '<span class="badge bg-warning">Scheduled</span>';
+
+      return `
+      <div class="d-flex justify-content-between align-items-center border-bottom py-2">
+        <div>
+          <strong>${job.subject || "Bulk Email"}</strong> ${statusBadge}<br>
+          <small>
+            📊 ${job.contact_count} contacts 
+            ${job.use_batch ? "(Batch mode)" : "(Normal mode)"}<br>
+            📅 ${scheduledDate.toLocaleString()}
+            ${job.notify_email ? `<br>📧 Notify: ${job.notify_email}` : ""}
+          </small>
+        </div>
+        <button class="btn btn-sm btn-danger" onclick="cancelScheduledJob('${
+          job.id
+        }')" 
+          ${job.status === "running" ? "disabled" : ""}>
+          ❌
+        </button>
+      </div>
+    `;
+    })
+    .join("");
+}
+
+// Cancel scheduled job
+async function cancelScheduledJob(jobId) {
+  if (!confirm("Cancel this scheduled job?")) return;
+
+  try {
+    const response = await fetch(`/scheduled-jobs/${jobId}`, {
+      method: "DELETE",
+    });
+    const result = await response.json();
+
+    if (result.success) {
+      showAlert("success", "✅ Scheduled job cancelled");
+      refreshScheduledJobs();
+    } else {
+      showAlert("danger", result.message || "Failed to cancel job");
+    }
+  } catch (error) {
+    showAlert("danger", `❌ Error: ${error.message}`);
+  }
+}
+
+// Browser notification for completed scheduled jobs
+let scheduledJobCheckInterval;
+
+function startScheduledJobMonitoring() {
+  // Check every minute for completed scheduled jobs
+  scheduledJobCheckInterval = setInterval(async () => {
+    try {
+      const response = await fetch("/scheduled-jobs");
+      const result = await response.json();
+
+      if (result.success) {
+        // Check if any jobs just completed
+        const completedJobs = result.data.filter(
+          (job) =>
+            job.status === "completed" &&
+            new Date(job.completed_at) > new Date(Date.now() - 60000)
+        );
+
+        completedJobs.forEach((job) => {
+          if (
+            "Notification" in window &&
+            Notification.permission === "granted"
+          ) {
+            new Notification("✅ Email Campaign Complete!", {
+              body: `Your scheduled campaign "${job.subject}" has been completed.`,
+              icon: "/favicon.ico",
+            });
+          }
+        });
+      }
+    } catch (error) {
+      console.error("Error checking scheduled jobs:", error);
+    }
+  }, 60000); // Check every minute
 }
 
 async function handleExcelFileChange() {
@@ -454,6 +671,24 @@ async function sendEmails() {
     formData.set("emailDelay", emailDelay);
   }
 
+  // ADD: Scheduling fields
+  const scheduleEmail = document.getElementById("scheduleEmail").checked;
+  const scheduledTime = document.getElementById("scheduledTime").value;
+  const notifyEmail = document.querySelector('input[name="notifyEmail"]').value;
+  const notifyBrowser = document.getElementById("notifyBrowser").checked;
+
+  if (scheduleEmail) {
+    if (!scheduledTime) {
+      showAlert("danger", "❌ Please select a schedule date and time");
+      return;
+    }
+
+    formData.set("scheduleEmail", "on");
+    formData.set("scheduledTime", scheduledTime);
+    if (notifyEmail) formData.set("notifyEmail", notifyEmail);
+    if (notifyBrowser) formData.set("notifyBrowser", "on");
+  }
+
   // Add file inputs to form data
   const excelFile = excelFileField.files[0];
   const htmlTemplate = document.querySelector('input[name="htmlTemplate"]')
@@ -532,19 +767,37 @@ async function sendEmails() {
 
     if (result.success) {
       let message = `✅ ${result.message}`;
-      if (result.usingEnvConfig) {
-        message += " (Using .env configuration)";
-      }
 
-      showAlert("success", message);
+      if (result.scheduledMode) {
+        showAlert("success", message);
+        refreshScheduledJobs();
 
-      // If batch mode, start monitoring
-      if (result.batchMode) {
+        // Show browser notification if enabled
+        if (notifyBrowser && "Notification" in window) {
+          new Notification("📅 Email Campaign Scheduled", {
+            body: `Your campaign for ${
+              result.contactCount
+            } contacts has been scheduled for ${new Date(
+              result.scheduledTime
+            ).toLocaleString()}`,
+            icon: "/favicon.ico",
+          });
+        }
+      } else if (result.batchMode) {
+        if (result.usingEnvConfig) {
+          message += " (Using .env configuration)";
+        }
+
+        showAlert("success", message);
         startBatchMonitoring();
         setTimeout(() => {
           showTab("report");
         }, 2000);
       } else {
+        if (result.usingEnvConfig) {
+          message += " (Using .env configuration)";
+        }
+        showAlert("success", message);
         // Switch to report tab to see progress
         setTimeout(() => {
           showTab("report");
@@ -558,7 +811,9 @@ async function sendEmails() {
     showAlert("danger", `❌ Error: ${error.message}`);
   } finally {
     // Reset button state
-    sendButton.textContent = "🚀 Send Emails";
+    sendButton.textContent = scheduleEmail
+      ? "📅 Schedule Campaign"
+      : "🚀 Send Emails";
     spinner.classList.add("d-none");
   }
 }

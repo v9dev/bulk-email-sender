@@ -13,6 +13,18 @@
       rel="stylesheet"
     />
     <link href="/css/style.css" rel="stylesheet" />
+    <style>
+      #scheduledJobsList {
+        max-height: 200px;
+        overflow-y: auto;
+      }
+      #scheduleIndicator {
+        vertical-align: middle;
+      }
+      .badge {
+        font-size: 0.75rem;
+      }
+    </style>
   </head>
   <body>
     <div class="container-fluid">
@@ -175,16 +187,15 @@
                     Company, Subject</small
                   >
                   <br />
-
-                  <a
-                    href="/public/samples/sample-contacts.xlsx"
+                  
+                    <a href="/public/samples/sample-contacts.xlsx"
                     class="btn btn-sm btn-outline-secondary mt-2"
                     >📥 Download Sample</a
                   >
                 </div>
 
                 <div class="alert alert-success d-none" id="excelStatus">
-                  <strong>✅ Excel File Processed</strong><br />
+                  <strong>✅ Excel File Processed</strong><br>
                   <span id="excelDetails"></span>
                 </div>
 
@@ -236,71 +247,88 @@
               </div>
               <div class="card-body">
                 <div class="form-check mb-3">
-                  <input
-                    class="form-check-input"
-                    type="checkbox"
-                    name="useBatch"
-                    id="useBatch"
-                  />
+                  <input class="form-check-input" type="checkbox" name="useBatch" id="useBatch">
                   <label class="form-check-label" for="useBatch">
                     <strong>Enable Batch Processing</strong>
                   </label>
-                  <br />
-                  <small class="text-muted"
-                    >Recommended for large lists to avoid Gmail limits</small
-                  >
+                  <br>
+                  <small class="text-muted">Recommended for large lists to avoid Gmail limits</small>
                 </div>
-
+                
                 <div id="batchSettings" class="d-none">
                   <div class="row">
                     <div class="col-md-4">
                       <label class="form-label">Emails per Batch</label>
-                      <input
-                        type="number"
-                        class="form-control"
-                        name="batchSize"
-                        value="20"
-                        min="5"
-                        max="50"
-                      />
-                      <small class="text-muted"
-                        >Max 20 recommended for Gmail</small
-                      >
+                      <input type="number" class="form-control" name="batchSize" value="20" min="5" max="50">
+                      <small class="text-muted">Max 20 recommended for Gmail</small>
                     </div>
                     <div class="col-md-4">
                       <label class="form-label">Batch Delay (minutes)</label>
-                      <input
-                        type="number"
-                        class="form-control"
-                        name="batchDelay"
-                        value="60"
-                        min="30"
-                        max="180"
-                      />
+                      <input type="number" class="form-control" name="batchDelay" value="60" min="30" max="180">
                       <small class="text-muted">Time between batches</small>
                     </div>
                     <div class="col-md-4">
                       <label class="form-label">Email Delay (seconds)</label>
-                      <input
-                        type="number"
-                        class="form-control"
-                        name="emailDelay"
-                        value="45"
-                        min="30"
-                        max="60"
-                      />
+                      <input type="number" class="form-control" name="emailDelay" value="45" min="30" max="60">
                       <small class="text-muted">Delay between each email</small>
                     </div>
                   </div>
-
+                  
                   <div class="alert alert-info mt-3">
                     <strong>📊 Batch Preview:</strong>
-                    <div id="batchPreview">
-                      Configure settings to see preview
-                    </div>
+                    <div id="batchPreview">Configure settings to see preview</div>
                   </div>
                 </div>
               </div>
+            </div>
+
+            <!-- NEW: Scheduling Card -->
+            <div class="card mt-3">
+              <div class="card-header">
+                <h6>⏰ Schedule Email Sending</h6>
+              </div>
+              <div class="card-body">
+                <div class="form-check mb-3">
+                  <input class="form-check-input" type="checkbox" name="scheduleEmail" id="scheduleEmail">
+                  <label class="form-check-label" for="scheduleEmail">
+                    <strong>Schedule for later sending</strong>
+                  </label>
+                  <br>
+                  <small class="text-muted">Send emails at a specific date/time automatically</small>
+                </div>
+                
+                <div id="scheduleSettings" class="d-none">
+                  <div class="row">
+                    <div class="col-md-6">
+                      <label class="form-label">Schedule Date & Time</label>
+                      <input type="datetime-local" class="form-control" name="scheduledTime" id="scheduledTime">
+                      <small class="text-muted">Minimum 5 minutes from now</small>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label">Notification Settings</label>
+                      <input type="email" class="form-control mb-2" name="notifyEmail" placeholder="Email for completion notification">
+                      <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="notifyBrowser" id="notifyBrowser">
+                        <label class="form-check-label" for="notifyBrowser">
+                          Browser notification
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div class="alert alert-info mt-3">
+                    <strong>📅 Active Scheduled Jobs:</strong>
+                    <div id="scheduledJobsList" class="mt-2">Loading...</div>
+                    <button class="btn btn-sm btn-outline-primary mt-2" onclick="refreshScheduledJobs()">🔄 Refresh</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- NEW: Provider Limit Info -->
+            <div class="alert alert-warning mt-3" id="providerLimitInfo" style="display:none;">
+              <strong>📊 Provider Limits:</strong>
+              <div id="providerLimitText"></div>
             </div>
           </div>
         </div>
@@ -346,6 +374,7 @@
                     type="button"
                     class="btn btn-primary"
                     onclick="sendEmails()"
+                    id="sendButton"
                   >
                     <span id="sendButtonText">🚀 Send Emails</span>
                     <span
@@ -361,6 +390,8 @@
                   >
                     👁️ Preview
                   </button>
+                  <!-- NEW: Schedule indicator -->
+                  <span id="scheduleIndicator" class="badge bg-info d-none">📅 Will be scheduled</span>
                 </div>
               </div>
             </div>
@@ -409,29 +440,12 @@
                 <!-- NEW: Batch Status Container -->
                 <div id="batchStatusContainer" class="d-none">
                   <div class="card mb-4">
-                    <div
-                      class="card-header d-flex justify-content-between align-items-center"
-                    >
+                    <div class="card-header d-flex justify-content-between align-items-center">
                       <h6>⚡ Batch Processing Status</h6>
                       <div id="batchControls">
-                        <button
-                          class="btn btn-warning btn-sm"
-                          onclick="pauseBatch()"
-                        >
-                          ⏸️ Pause
-                        </button>
-                        <button
-                          class="btn btn-success btn-sm"
-                          onclick="resumeBatch()"
-                        >
-                          ▶️ Resume
-                        </button>
-                        <button
-                          class="btn btn-danger btn-sm"
-                          onclick="cancelBatch()"
-                        >
-                          ❌ Cancel
-                        </button>
+                        <button class="btn btn-warning btn-sm" onclick="pauseBatch()">⏸️ Pause</button>
+                        <button class="btn btn-success btn-sm" onclick="resumeBatch()">▶️ Resume</button>
+                        <button class="btn btn-danger btn-sm" onclick="cancelBatch()">❌ Cancel</button>
                       </div>
                     </div>
                     <div class="card-body">
