@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { emailService } from "../services/emailService";
+import { batchService } from "../services/batchService";
 import { FileService } from "../services/fileService";
-import type { EmailJob, EmailConfig } from "../types";
+import type { EmailJob, EmailConfig, BatchConfig } from "../types";
 
 const app = new Hono();
 
@@ -44,6 +45,12 @@ app.post("/send", async (c) => {
     const htmlContent = (formData.get("htmlContent") as string) || "";
     const delay = parseInt(formData.get("delay") as string) || 20;
 
+    // Add batch processing parameters
+    const useBatch = formData.get("useBatch") === "on";
+    const batchSize = parseInt(formData.get("batchSize") as string) || 20;
+    const batchDelay = parseInt(formData.get("batchDelay") as string) || 60;
+    const emailDelay = parseInt(formData.get("emailDelay") as string) || 45;
+
     const excelFile = formData.get("excelFile") as File;
     const htmlTemplateFile = formData.get("htmlTemplate") as File;
 
@@ -61,6 +68,10 @@ app.post("/send", async (c) => {
         ? `${excelFile.name} (${excelFile.size} bytes)`
         : "none",
       delay,
+      useBatch,
+      batchSize,
+      batchDelay,
+      emailDelay,
     });
 
     // Validate required fields with better error messages
@@ -193,30 +204,54 @@ app.post("/send", async (c) => {
       fromEmail,
       fromName,
       config: emailConfig,
-      delay,
+      delay: useBatch ? emailDelay : delay,
     };
 
-    // Start sending emails asynchronously
-    console.log(
-      `Starting bulk email job for ${contacts.length} contacts with ${delay}s delay...`
-    );
-    console.log(`Subject: "${subject.trim()}"`);
-    console.log(
-      `Using ${
-        process.env.SMTP_HOST ? "environment" : "manual"
-      } SMTP configuration`
-    );
+    // Handle batch vs normal sending
+    if (useBatch) {
+      const batchConfig: BatchConfig = {
+        batchSize,
+        emailDelay,
+        batchDelay,
+        enabled: true,
+      };
 
-    emailService.sendBulkEmails(emailJob).catch((error) => {
-      console.error("Bulk email sending failed:", error);
-    });
+      console.log(
+        `Starting BATCH email job: ${contacts.length} contacts in batches of ${batchSize}`
+      );
+      const jobId = await batchService.startBatchJob(emailJob, batchConfig);
 
-    return c.json({
-      success: true,
-      message: `Email sending started for ${contacts.length} contacts`,
-      contactCount: contacts.length,
-      usingEnvConfig: !!(process.env.SMTP_HOST && process.env.SMTP_USER),
-    });
+      return c.json({
+        success: true,
+        message: `Batch email job started! Will send ${batchSize} emails every ${batchDelay} minutes.`,
+        contactCount: contacts.length,
+        jobId,
+        batchMode: true,
+        batchConfig,
+      });
+    } else {
+      // Original bulk sending
+      console.log(
+        `Starting bulk email job for ${contacts.length} contacts with ${delay}s delay...`
+      );
+      console.log(`Subject: "${subject.trim()}"`);
+      console.log(
+        `Using ${
+          process.env.SMTP_HOST ? "environment" : "manual"
+        } SMTP configuration`
+      );
+
+      emailService.sendBulkEmails(emailJob).catch((error) => {
+        console.error("Bulk email sending failed:", error);
+      });
+
+      return c.json({
+        success: true,
+        message: `Email sending started for ${contacts.length} contacts`,
+        contactCount: contacts.length,
+        usingEnvConfig: !!(process.env.SMTP_HOST && process.env.SMTP_USER),
+      });
+    }
   } catch (error) {
     console.error("Send endpoint error:", error);
     const message =
@@ -264,6 +299,27 @@ app.post("/parse-excel", async (c) => {
       error instanceof Error ? error.message : "Failed to parse Excel file";
     return c.json({ success: false, message }, 500);
   }
+});
+
+// Batch control endpoints
+app.get("/batch-status", (c) => {
+  const status = batchService.getBatchStatus();
+  return c.json({ success: true, data: status });
+});
+
+app.post("/batch-pause", async (c) => {
+  await batchService.pauseCurrentJob();
+  return c.json({ success: true, message: "Batch job paused" });
+});
+
+app.post("/batch-resume", async (c) => {
+  await batchService.resumeCurrentJob();
+  return c.json({ success: true, message: "Batch job resumed" });
+});
+
+app.delete("/batch-cancel", async (c) => {
+  await batchService.cancelCurrentJob();
+  return c.json({ success: true, message: "Batch job cancelled" });
 });
 
 export default app;

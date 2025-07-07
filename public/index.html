@@ -175,11 +175,17 @@
                     Company, Subject</small
                   >
                   <br />
+
                   <a
                     href="/public/samples/sample-contacts.xlsx"
                     class="btn btn-sm btn-outline-secondary mt-2"
                     >📥 Download Sample</a
                   >
+                </div>
+
+                <div class="alert alert-success d-none" id="excelStatus">
+                  <strong>✅ Excel File Processed</strong><br />
+                  <span id="excelDetails"></span>
                 </div>
 
                 <div class="mb-3">
@@ -219,6 +225,80 @@
                     • Outlook: Regular password usually works<br />
                     • Respect provider sending limits
                   </small>
+                </div>
+              </div>
+            </div>
+
+            <!-- NEW: Batch Processing Card -->
+            <div class="card mt-3">
+              <div class="card-header">
+                <h6>⚡ Batch Processing (Avoid Gmail Limits)</h6>
+              </div>
+              <div class="card-body">
+                <div class="form-check mb-3">
+                  <input
+                    class="form-check-input"
+                    type="checkbox"
+                    name="useBatch"
+                    id="useBatch"
+                  />
+                  <label class="form-check-label" for="useBatch">
+                    <strong>Enable Batch Processing</strong>
+                  </label>
+                  <br />
+                  <small class="text-muted"
+                    >Recommended for large lists to avoid Gmail limits</small
+                  >
+                </div>
+
+                <div id="batchSettings" class="d-none">
+                  <div class="row">
+                    <div class="col-md-4">
+                      <label class="form-label">Emails per Batch</label>
+                      <input
+                        type="number"
+                        class="form-control"
+                        name="batchSize"
+                        value="20"
+                        min="5"
+                        max="50"
+                      />
+                      <small class="text-muted"
+                        >Max 20 recommended for Gmail</small
+                      >
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label">Batch Delay (minutes)</label>
+                      <input
+                        type="number"
+                        class="form-control"
+                        name="batchDelay"
+                        value="60"
+                        min="30"
+                        max="180"
+                      />
+                      <small class="text-muted">Time between batches</small>
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label">Email Delay (seconds)</label>
+                      <input
+                        type="number"
+                        class="form-control"
+                        name="emailDelay"
+                        value="45"
+                        min="30"
+                        max="60"
+                      />
+                      <small class="text-muted">Delay between each email</small>
+                    </div>
+                  </div>
+
+                  <div class="alert alert-info mt-3">
+                    <strong>📊 Batch Preview:</strong>
+                    <div id="batchPreview">
+                      Configure settings to see preview
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -324,6 +404,40 @@
               <div class="card-body">
                 <div id="statsContainer" class="row mb-4">
                   <!-- Stats will be loaded here -->
+                </div>
+
+                <!-- NEW: Batch Status Container -->
+                <div id="batchStatusContainer" class="d-none">
+                  <div class="card mb-4">
+                    <div
+                      class="card-header d-flex justify-content-between align-items-center"
+                    >
+                      <h6>⚡ Batch Processing Status</h6>
+                      <div id="batchControls">
+                        <button
+                          class="btn btn-warning btn-sm"
+                          onclick="pauseBatch()"
+                        >
+                          ⏸️ Pause
+                        </button>
+                        <button
+                          class="btn btn-success btn-sm"
+                          onclick="resumeBatch()"
+                        >
+                          ▶️ Resume
+                        </button>
+                        <button
+                          class="btn btn-danger btn-sm"
+                          onclick="cancelBatch()"
+                        >
+                          ❌ Cancel
+                        </button>
+                      </div>
+                    </div>
+                    <div class="card-body">
+                      <div id="batchProgress"></div>
+                    </div>
+                  </div>
                 </div>
 
                 <div class="table-responsive">

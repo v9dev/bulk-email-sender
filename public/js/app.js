@@ -33,7 +33,178 @@ document.addEventListener("DOMContentLoaded", function () {
   if (excelFileInput) {
     excelFileInput.addEventListener("change", handleExcelFileChange);
   }
+
+  // Batch processing controls
+  const useBatchCheckbox = document.getElementById("useBatch");
+  if (useBatchCheckbox) {
+    useBatchCheckbox.addEventListener("change", function () {
+      const batchSettings = document.getElementById("batchSettings");
+      if (this.checked) {
+        batchSettings.classList.remove("d-none");
+        updateBatchPreview();
+      } else {
+        batchSettings.classList.add("d-none");
+      }
+    });
+  }
+
+  // Update batch preview when settings change
+  ["batchSize", "batchDelay", "emailDelay"].forEach((fieldName) => {
+    const field = document.querySelector(`input[name="${fieldName}"]`);
+    if (field) {
+      field.addEventListener("input", updateBatchPreview);
+    }
+  });
 });
+
+function updateBatchPreview() {
+  const batchSize =
+    parseInt(document.querySelector('input[name="batchSize"]').value) || 20;
+  const batchDelay =
+    parseInt(document.querySelector('input[name="batchDelay"]').value) || 60;
+  const emailDelay =
+    parseInt(document.querySelector('input[name="emailDelay"]').value) || 45;
+
+  // Calculate based on current contacts if available
+  const totalContacts = currentContacts.length || 100; // Use 100 as example
+  const totalBatches = Math.ceil(totalContacts / batchSize);
+  const totalTime = (totalBatches * batchDelay) / 60; // Convert to hours
+
+  const preview = `
+    📊 <strong>${totalContacts} contacts</strong> → 
+    <strong>${totalBatches} batches</strong> of ${batchSize} emails<br>
+    ⏱️ Total time: ~${totalTime.toFixed(1)} hours 
+    (${emailDelay}s between emails, ${batchDelay}min between batches)
+  `;
+
+  const previewElement = document.getElementById("batchPreview");
+  if (previewElement) {
+    previewElement.innerHTML = preview;
+  }
+}
+
+// Batch monitoring
+let batchStatusInterval;
+
+function startBatchMonitoring() {
+  batchStatusInterval = setInterval(checkBatchStatus, 5000); // Check every 5 seconds
+}
+
+function stopBatchMonitoring() {
+  if (batchStatusInterval) {
+    clearInterval(batchStatusInterval);
+    batchStatusInterval = null;
+  }
+}
+
+async function checkBatchStatus() {
+  try {
+    const response = await fetch("/batch-status");
+    const result = await response.json();
+
+    if (result.success && result.data.isRunning) {
+      showBatchStatus(result.data);
+    } else {
+      hideBatchStatus();
+      stopBatchMonitoring();
+    }
+  } catch (error) {
+    console.error("Error checking batch status:", error);
+  }
+}
+
+function showBatchStatus(batchData) {
+  const container = document.getElementById("batchStatusContainer");
+  const progress = document.getElementById("batchProgress");
+
+  if (batchData.currentJob) {
+    const job = batchData.currentJob;
+    const progressPercent = (
+      ((job.emailsSent + job.emailsFailed) / job.totalContacts) *
+      100
+    ).toFixed(1);
+
+    progress.innerHTML = `
+      <div class="row">
+        <div class="col-md-6">
+          <strong>Job Status:</strong> <span class="badge bg-primary">${
+            job.status
+          }</span><br>
+          <strong>Progress:</strong> ${job.emailsSent + job.emailsFailed}/${
+      job.totalContacts
+    } (${progressPercent}%)<br>
+          <strong>Batch:</strong> ${job.currentBatch}/${job.totalBatches}
+        </div>
+        <div class="col-md-6">
+          <strong>Sent:</strong> <span class="text-success">${
+            job.emailsSent
+          }</span><br>
+          <strong>Failed:</strong> <span class="text-danger">${
+            job.emailsFailed
+          }</span><br>
+          <strong>Next Batch:</strong> ${
+            job.nextBatchTime
+              ? new Date(job.nextBatchTime).toLocaleTimeString()
+              : "N/A"
+          }
+        </div>
+      </div>
+      <div class="progress mt-2">
+        <div class="progress-bar" style="width: ${progressPercent}%">${progressPercent}%</div>
+      </div>
+    `;
+
+    container.classList.remove("d-none");
+  }
+}
+
+function hideBatchStatus() {
+  const container = document.getElementById("batchStatusContainer");
+  if (container) {
+    container.classList.add("d-none");
+  }
+}
+
+async function pauseBatch() {
+  try {
+    const response = await fetch("/batch-pause", { method: "POST" });
+    const result = await response.json();
+    if (result.success) {
+      showAlert("warning", "⏸️ Batch job paused");
+    }
+  } catch (error) {
+    showAlert("danger", `❌ Error pausing batch: ${error.message}`);
+  }
+}
+
+async function resumeBatch() {
+  try {
+    const response = await fetch("/batch-resume", { method: "POST" });
+    const result = await response.json();
+    if (result.success) {
+      showAlert("success", "▶️ Batch job resumed");
+    }
+  } catch (error) {
+    showAlert("danger", `❌ Error resuming batch: ${error.message}`);
+  }
+}
+
+async function cancelBatch() {
+  if (!confirm("Are you sure you want to cancel the current batch job?"))
+    return;
+
+  try {
+    const response = await fetch("/batch-cancel", { method: "DELETE" });
+    const result = await response.json();
+    if (result.success) {
+      showAlert("info", "❌ Batch job cancelled");
+      hideBatchStatus();
+      stopBatchMonitoring();
+    }
+  } catch (error) {
+    showAlert("danger", `❌ Error cancelling batch: ${error.message}`);
+  }
+}
 
 async function handleExcelFileChange() {
   const fileInput = document.querySelector('input[name="excelFile"]');
@@ -70,18 +241,28 @@ async function parseExcelFile(file) {
       // Show success status
       const statusDiv = document.getElementById("excelStatus");
       const detailsSpan = document.getElementById("excelDetails");
-      statusDiv.classList.remove("d-none");
-      detailsSpan.textContent = `Found ${result.totalCount} contacts. Preview will use real data.`;
+      if (statusDiv && detailsSpan) {
+        statusDiv.classList.remove("d-none");
+        detailsSpan.textContent = `Found ${result.totalCount} contacts. Preview will use real data.`;
+      }
 
       showAlert(
         "success",
         `✅ Excel file processed successfully! Found ${result.totalCount} contacts. Preview updated.`
       );
       console.log("Parsed contacts:", currentContacts);
+
+      // Update batch preview if batch mode is enabled
+      const useBatch = document.getElementById("useBatch");
+      if (useBatch && useBatch.checked) {
+        updateBatchPreview();
+      }
     } else {
       // Hide status on error
       const statusDiv = document.getElementById("excelStatus");
-      statusDiv.classList.add("d-none");
+      if (statusDiv) {
+        statusDiv.classList.add("d-none");
+      }
 
       showAlert("danger", `❌ Failed to parse Excel file: ${result.message}`);
       currentContacts = [];
@@ -91,7 +272,9 @@ async function parseExcelFile(file) {
 
     // Hide status on error
     const statusDiv = document.getElementById("excelStatus");
-    statusDiv.classList.add("d-none");
+    if (statusDiv) {
+      statusDiv.classList.add("d-none");
+    }
 
     showAlert("danger", `❌ Error parsing Excel file: ${error.message}`);
     currentContacts = [];
@@ -118,29 +301,29 @@ async function loadSMTPDefaults() {
         );
         const fromNameField = document.querySelector('input[name="fromName"]');
 
-        if (smtpDefaults.host) {
+        if (smtpDefaults.host && hostField) {
           hostField.value = smtpDefaults.host;
           hostField.removeAttribute("required");
           hostField.classList.add("bg-light");
           hostField.readOnly = true;
         }
 
-        if (smtpDefaults.port) {
+        if (smtpDefaults.port && portField) {
           portField.value = smtpDefaults.port;
         }
 
-        if (smtpDefaults.secure !== undefined) {
+        if (smtpDefaults.secure !== undefined && secureField) {
           secureField.checked = smtpDefaults.secure;
         }
 
-        if (smtpDefaults.user) {
+        if (smtpDefaults.user && userField) {
           userField.value = smtpDefaults.user;
           userField.removeAttribute("required");
           userField.classList.add("bg-light");
           userField.readOnly = true;
         }
 
-        if (smtpDefaults.pass) {
+        if (smtpDefaults.pass && passField) {
           // For app passwords, just show that it's configured
           passField.placeholder = "••••••••••••••••";
           passField.value = ""; // Don't show the actual password
@@ -154,14 +337,14 @@ async function loadSMTPDefaults() {
           passField.parentNode.appendChild(helpText);
         }
 
-        if (smtpDefaults.fromEmail) {
+        if (smtpDefaults.fromEmail && fromEmailField) {
           fromEmailField.value = smtpDefaults.fromEmail;
           fromEmailField.removeAttribute("required");
           fromEmailField.classList.add("bg-light");
           fromEmailField.readOnly = true;
         }
 
-        if (smtpDefaults.fromName) {
+        if (smtpDefaults.fromName && fromNameField) {
           fromNameField.value = smtpDefaults.fromName;
           fromNameField.classList.add("bg-light");
           fromNameField.readOnly = true;
@@ -248,6 +431,29 @@ async function sendEmails() {
   // Add Quill content to form data
   formData.set("htmlContent", htmlContent);
 
+  // Add batch processing fields
+  const useBatchElement = document.getElementById("useBatch");
+  const useBatch = useBatchElement ? useBatchElement.checked : false;
+  formData.set("useBatch", useBatch ? "on" : "off");
+
+  if (useBatch) {
+    const batchSizeElement = document.querySelector('input[name="batchSize"]');
+    const batchDelayElement = document.querySelector(
+      'input[name="batchDelay"]'
+    );
+    const emailDelayElement = document.querySelector(
+      'input[name="emailDelay"]'
+    );
+
+    const batchSize = batchSizeElement ? batchSizeElement.value : "20";
+    const batchDelay = batchDelayElement ? batchDelayElement.value : "60";
+    const emailDelay = emailDelayElement ? emailDelayElement.value : "45";
+
+    formData.set("batchSize", batchSize);
+    formData.set("batchDelay", batchDelay);
+    formData.set("emailDelay", emailDelay);
+  }
+
   // Add file inputs to form data
   const excelFile = excelFileField.files[0];
   const htmlTemplate = document.querySelector('input[name="htmlTemplate"]')
@@ -287,7 +493,7 @@ async function sendEmails() {
     if (
       fieldName === "smtpPass" &&
       field &&
-      field.placeholder === "••••••••" &&
+      field.placeholder === "••••••••••••••••" &&
       smtpDefaults.pass
     ) {
       // If password field shows placeholder (meaning we have env password), use env value
@@ -329,11 +535,21 @@ async function sendEmails() {
       if (result.usingEnvConfig) {
         message += " (Using .env configuration)";
       }
+
       showAlert("success", message);
-      // Switch to report tab to see progress
-      setTimeout(() => {
-        showTab("report");
-      }, 2000);
+
+      // If batch mode, start monitoring
+      if (result.batchMode) {
+        startBatchMonitoring();
+        setTimeout(() => {
+          showTab("report");
+        }, 2000);
+      } else {
+        // Switch to report tab to see progress
+        setTimeout(() => {
+          showTab("report");
+        }, 2000);
+      }
     } else {
       showAlert("danger", `❌ ${result.message}`);
     }
