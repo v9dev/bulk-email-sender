@@ -84,8 +84,15 @@ app.post("/send", async (c) => {
       return c.json({ success: false, message: "Excel file is required" }, 400);
     }
 
-    if (!htmlContent || htmlContent.trim() === "" || htmlContent === "<p><br></p>") {
-      return c.json({ success: false, message: "Email content is required" }, 400);
+    // UPDATED: Check content - HTML template OR editor content required
+    if (!htmlTemplateFile || htmlTemplateFile.size === 0) {
+      // Only require editor content if no HTML template
+      if (!htmlContent || htmlContent.trim() === "" || htmlContent === "<p><br></p>") {
+        return c.json({ 
+          success: false, 
+          message: "Email content is required (either in editor or upload HTML template)" 
+        }, 400);
+      }
     }
 
     // Configure email service
@@ -137,10 +144,12 @@ app.post("/send", async (c) => {
     let finalHtmlContent = htmlContent;
     if (htmlTemplateFile && htmlTemplateFile.size > 0) {
       try {
+        console.log("Processing HTML template file...");
         const arrayBuffer = await htmlTemplateFile.arrayBuffer();
         const filename = `${Date.now()}_${htmlTemplateFile.name}`;
         const filePath = await FileService.saveUploadedFile(new Uint8Array(arrayBuffer), filename);
         finalHtmlContent = await FileService.readHTMLTemplate(filePath);
+        console.log("Using HTML template as primary content");
       } catch (error) {
         return c.json({
           success: false,
@@ -208,7 +217,8 @@ app.post("/send", async (c) => {
           message: `Batch email job started! Will send ${batchSize} emails every ${batchDelay} minutes.`,
           contactCount: contacts.length,
           jobId,
-          batchMode: true
+          batchMode: true,
+          batchConfig
         });
       } else {
         // Normal bulk sending
