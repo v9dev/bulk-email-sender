@@ -3,13 +3,24 @@ import { batchService } from './batchService';
 import { emailService } from './emailService';
 import { notificationService } from './notificationService';
 import type { EmailJob, BatchConfig, ScheduledJob } from '../types';
+import { existsSync, mkdirSync } from 'fs';
+import { dirname } from 'path';
 
 class SchedulerService {
   private db: Database;
   private schedulerInterval: Timer | null = null;
   
   constructor() {
-    this.db = new Database('./data/scheduler.db');
+    // Ensure data directory exists
+    const dbPath = './data/scheduler.db';
+    const dbDir = dirname(dbPath);
+    
+    if (!existsSync(dbDir)) {
+      mkdirSync(dbDir, { recursive: true });
+      console.log('📁 Created data directory for SQLite database');
+    }
+    
+    this.db = new Database(dbPath);
     this.initDatabase();
     this.startScheduler();
   }
@@ -32,6 +43,8 @@ class SchedulerService {
         use_batch INTEGER DEFAULT 0
       )
     `);
+    
+    console.log('✅ SQLite database initialized');
   }
   
   async scheduleJob(

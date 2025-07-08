@@ -2,6 +2,9 @@
 let quill;
 let smtpDefaults = {};
 let currentContacts = [];
+let reportRefreshInterval;
+let countdownInterval;
+let jobDashboardInterval;
 
 document.addEventListener("DOMContentLoaded", function () {
   // Initialize Quill
@@ -28,10 +31,21 @@ document.addEventListener("DOMContentLoaded", function () {
   // Load initial report
   refreshReport();
 
+  // Start real-time report updates
+  startRealtimeReportUpdates();
+
   // Add event listener for Excel file changes
   const excelFileInput = document.querySelector('input[name="excelFile"]');
   if (excelFileInput) {
     excelFileInput.addEventListener("change", handleExcelFileChange);
+  }
+
+  // Add event listener for HTML template changes
+  const htmlTemplateInput = document.querySelector(
+    'input[name="htmlTemplate"]'
+  );
+  if (htmlTemplateInput) {
+    htmlTemplateInput.addEventListener("change", handleHtmlTemplateChange);
   }
 
   // Batch processing controls
@@ -108,7 +122,101 @@ document.addEventListener("DOMContentLoaded", function () {
   // Start monitoring scheduled jobs
   startScheduledJobMonitoring();
   refreshScheduledJobs();
+
+  // Load job dashboard on page load
+  loadJobDashboard();
+
+  // Poll dashboard every 3 seconds
+  jobDashboardInterval = setInterval(loadJobDashboard, 3000);
 });
+
+// Handle HTML template upload
+async function handleHtmlTemplateChange() {
+  const fileInput = document.querySelector('input[name="htmlTemplate"]');
+  const file = fileInput.files[0];
+
+  if (file) {
+    document.getElementById("htmlTemplateStatus").classList.remove("d-none");
+    document.getElementById("contentOptional").classList.remove("d-none");
+
+    // Update editor placeholder
+    const editorElement = document.querySelector(".ql-editor");
+    if (editorElement) {
+      editorElement.setAttribute(
+        "data-placeholder",
+        "Content will be loaded from HTML template (optional override)"
+      );
+    }
+
+    showAlert(
+      "info",
+      `📄 HTML template "${file.name}" selected. Content editor is now optional.`
+    );
+  } else {
+    document.getElementById("htmlTemplateStatus").classList.add("d-none");
+    document.getElementById("contentOptional").classList.add("d-none");
+  }
+}
+
+// Start real-time report updates
+function startRealtimeReportUpdates() {
+  // Update reports every 2 seconds when on report tab
+  reportRefreshInterval = setInterval(() => {
+    const reportTab = document.getElementById("report-tab");
+    if (reportTab && !reportTab.classList.contains("d-none")) {
+      refreshReport(true); // silent refresh
+    }
+  }, 2000);
+}
+
+// Show success modal instead of just alert
+function showSuccessModal(title, message, details) {
+  const modalHtml = `
+    <div class="modal fade" id="successModal" tabindex="-1">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header bg-success text-white">
+            <h5 class="modal-title">${title}</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="text-center mb-3">
+              <i class="bi bi-check-circle-fill text-success" style="font-size: 4rem;"></i>
+            </div>
+            <p class="text-center fs-5">${message}</p>
+            ${details ? `<div class="alert alert-info">${details}</div>` : ""}
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            <button type="button" class="btn btn-primary" onclick="showTab('report')" data-bs-dismiss="modal">View Reports</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Remove existing modal if any
+  const existingModal = document.getElementById("successModal");
+  if (existingModal) {
+    existingModal.remove();
+  }
+
+  // Add modal to body
+  document.body.insertAdjacentHTML("beforeend", modalHtml);
+
+  // Show modal
+  const modal = new bootstrap.Modal(document.getElementById("successModal"));
+  modal.show();
+
+  // Auto redirect to reports after 3 seconds
+  setTimeout(() => {
+    const modalElement = document.getElementById("successModal");
+    if (modalElement) {
+      modal.hide();
+      showTab("report");
+    }
+  }, 3000);
+}
 
 function updateBatchPreview() {
   const batchSize =
@@ -141,6 +249,7 @@ let batchStatusInterval;
 
 function startBatchMonitoring() {
   batchStatusInterval = setInterval(checkBatchStatus, 5000); // Check every 5 seconds
+  checkBatchStatus(); // Check immediately
 }
 
 function stopBatchMonitoring() {
@@ -166,6 +275,7 @@ async function checkBatchStatus() {
   }
 }
 
+// Enhanced batch monitoring with countdown
 function showBatchStatus(batchData) {
   const container = document.getElementById("batchStatusContainer");
   const progress = document.getElementById("batchProgress");
@@ -177,33 +287,67 @@ function showBatchStatus(batchData) {
       100
     ).toFixed(1);
 
+    // Calculate time until next batch
+    let nextBatchCountdown = "";
+    if (job.nextBatchTime && job.status !== "Paused") {
+      const now = new Date();
+      const nextBatch = new Date(job.nextBatchTime);
+      const diff = nextBatch - now;
+
+      if (diff > 0) {
+        const minutes = Math.floor(diff / 60000);
+        const seconds = Math.floor((diff % 60000) / 1000);
+        nextBatchCountdown = `
+          <div class="alert alert-warning mt-3">
+            <strong>⏱️ Next Batch In:</strong> 
+            <span class="countdown fs-4">${minutes}m ${seconds}s</span>
+          </div>
+        `;
+      }
+    }
+
+    // Status badge color
+    const statusColor = job.status === "Paused" ? "warning" : "primary";
+
     progress.innerHTML = `
       <div class="row">
         <div class="col-md-6">
-          <strong>Job Status:</strong> <span class="badge bg-primary">${
-            job.status
-          }</span><br>
+          <strong>Job Status:</strong> <span class="badge bg-${statusColor}">${
+      job.status
+    }</span><br>
           <strong>Progress:</strong> ${job.emailsSent + job.emailsFailed}/${
       job.totalContacts
     } (${progressPercent}%)<br>
-          <strong>Batch:</strong> ${job.currentBatch}/${job.totalBatches}
+          <strong>Batch:</strong> ${job.currentBatch}/${job.totalBatches}<br>
+          <strong>Job ID:</strong> <code>${job.id}</code>
         </div>
         <div class="col-md-6">
-          <strong>Sent:</strong> <span class="text-success">${
+          <strong>✅ Sent:</strong> <span class="text-success fs-5">${
             job.emailsSent
           }</span><br>
-          <strong>Failed:</strong> <span class="text-danger">${
+          <strong>❌ Failed:</strong> <span class="text-danger fs-5">${
             job.emailsFailed
           }</span><br>
-          <strong>Next Batch:</strong> ${
-            job.nextBatchTime
-              ? new Date(job.nextBatchTime).toLocaleTimeString()
-              : "N/A"
-          }
+          <strong>⏰ Started:</strong> ${new Date(
+            job.startTime
+          ).toLocaleTimeString()}
         </div>
       </div>
-      <div class="progress mt-2">
-        <div class="progress-bar" style="width: ${progressPercent}%">${progressPercent}%</div>
+      <div class="progress mt-3" style="height: 25px;">
+        <div class="progress-bar progress-bar-striped progress-bar-animated" 
+             style="width: ${progressPercent}%">
+          ${progressPercent}%
+        </div>
+      </div>
+      ${nextBatchCountdown}
+      <div class="alert alert-info mt-3">
+        <strong>📋 Current Activity:</strong><br>
+        <small>Sending ${job.config.batchSize} emails with ${
+      job.config.emailDelay
+    }s delay between each email.<br>
+        After this batch completes, will wait ${
+          job.config.batchDelay
+        } minutes before next batch.</small>
       </div>
     `;
 
@@ -224,6 +368,7 @@ async function pauseBatch() {
     const result = await response.json();
     if (result.success) {
       showAlert("warning", "⏸️ Batch job paused");
+      checkBatchStatus(); // Update status immediately
     }
   } catch (error) {
     showAlert("danger", `❌ Error pausing batch: ${error.message}`);
@@ -236,6 +381,7 @@ async function resumeBatch() {
     const result = await response.json();
     if (result.success) {
       showAlert("success", "▶️ Batch job resumed");
+      checkBatchStatus(); // Update status immediately
     }
   } catch (error) {
     showAlert("danger", `❌ Error resuming batch: ${error.message}`);
@@ -305,6 +451,7 @@ async function checkProviderLimits() {
           data.recommendedBatchSize;
         document.querySelector('input[name="emailDelay"]').value =
           data.recommendedDelay;
+        updateBatchPreview();
       }
     }
   } catch (error) {
@@ -379,6 +526,7 @@ async function cancelScheduledJob(jobId) {
     if (result.success) {
       showAlert("success", "✅ Scheduled job cancelled");
       refreshScheduledJobs();
+      loadJobDashboard();
     } else {
       showAlert("danger", result.message || "Failed to cancel job");
     }
@@ -421,6 +569,183 @@ function startScheduledJobMonitoring() {
       console.error("Error checking scheduled jobs:", error);
     }
   }, 60000); // Check every minute
+}
+
+// Load job dashboard
+async function loadJobDashboard() {
+  try {
+    // Fetch both batch and scheduled jobs
+    const [batchResponse, scheduledResponse] = await Promise.all([
+      fetch("/batch-status"),
+      fetch("/scheduled-jobs"),
+    ]);
+
+    const batchResult = await batchResponse.json();
+    const scheduledResult = await scheduledResponse.json();
+
+    updateJobDashboard(batchResult.data, scheduledResult.data);
+  } catch (error) {
+    console.error("Error loading job dashboard:", error);
+  }
+}
+
+// Update job dashboard with real-time data
+function updateJobDashboard(batchData, scheduledJobs) {
+  const dashboard = document.getElementById("job-dashboard");
+
+  // Show dashboard if there are any jobs
+  if (
+    (batchData && batchData.isRunning) ||
+    (scheduledJobs && scheduledJobs.length > 0)
+  ) {
+    dashboard.style.display = "block";
+  } else {
+    dashboard.style.display = "none";
+    return;
+  }
+
+  // Update active batch jobs
+  const batchContainer = document.getElementById("activeBatchJobs");
+  if (batchData && batchData.isRunning && batchData.currentJob) {
+    const job = batchData.currentJob;
+    const progressPercent = (
+      (job.emailsSent / job.totalContacts) *
+      100
+    ).toFixed(1);
+
+    batchContainer.innerHTML = `
+      <div class="list-group-item list-group-item-action">
+        <div class="d-flex w-100 justify-content-between">
+          <h6 class="mb-1">Batch Job: ${job.id}</h6>
+          <small class="badge bg-${
+            job.status === "Paused" ? "warning" : "primary"
+          }">${job.status}</small>
+        </div>
+        <p class="mb-1">
+          Progress: ${job.emailsSent}/${job.totalContacts} 
+          (Batch ${job.currentBatch}/${job.totalBatches})
+        </p>
+        <div class="progress" style="height: 20px;">
+          <div class="progress-bar progress-bar-striped progress-bar-animated" 
+               style="width: ${progressPercent}%">
+            ${progressPercent}%
+          </div>
+        </div>
+        ${
+          job.nextBatchTime && job.status !== "Paused"
+            ? `
+          <small class="text-warning">
+            Next batch at: ${new Date(job.nextBatchTime).toLocaleTimeString()}
+          </small>
+        `
+            : ""
+        }
+      </div>
+    `;
+  } else {
+    batchContainer.innerHTML =
+      '<div class="list-group-item text-muted">No active batch jobs</div>';
+  }
+
+  // Update scheduled jobs
+  const scheduledContainer = document.getElementById("scheduledJobsPreview");
+  if (scheduledJobs && scheduledJobs.length > 0) {
+    const upcomingJobs = scheduledJobs.filter(
+      (job) => job.status === "scheduled"
+    );
+
+    if (upcomingJobs.length > 0) {
+      scheduledContainer.innerHTML = upcomingJobs
+        .slice(0, 3)
+        .map(
+          (job) => `
+        <div class="list-group-item list-group-item-action">
+          <div class="d-flex w-100 justify-content-between">
+            <h6 class="mb-1">${job.subject || "Bulk Email"}</h6>
+            <small class="badge bg-warning">Scheduled</small>
+          </div>
+          <p class="mb-1">
+            ${job.contact_count} contacts • ${
+            job.use_batch ? "Batch mode" : "Normal"
+          }
+          </p>
+          <small class="text-primary">
+            📅 ${new Date(job.scheduled_time).toLocaleString()}
+          </small>
+        </div>
+      `
+        )
+        .join("");
+    } else {
+      scheduledContainer.innerHTML =
+        '<div class="list-group-item text-muted">No upcoming scheduled jobs</div>';
+    }
+  } else {
+    scheduledContainer.innerHTML =
+      '<div class="list-group-item text-muted">No scheduled jobs</div>';
+  }
+
+  // Update timeline with recent activity
+  updateJobTimeline();
+}
+
+// Update job timeline
+function updateJobTimeline() {
+  const timeline = document.getElementById("jobTimeline");
+
+  // Get recent activity from localStorage or session
+  const recentActivity = getRecentActivity();
+
+  if (recentActivity.length > 0) {
+    timeline.innerHTML = recentActivity
+      .map(
+        (event) => `
+      <div class="timeline-item">
+        <small class="text-muted">${new Date(
+          event.timestamp
+        ).toLocaleTimeString()}</small>
+        <br>
+        <span class="badge bg-${
+          event.type === "started"
+            ? "primary"
+            : event.type === "completed"
+            ? "success"
+            : "info"
+        }">
+          ${event.type}
+        </span>
+        ${event.message}
+      </div>
+    `
+      )
+      .join("");
+  } else {
+    timeline.innerHTML = '<div class="text-muted">No recent activity</div>';
+  }
+}
+
+// Get recent activity
+function getRecentActivity() {
+  // This could be enhanced to fetch from backend
+  const activities = JSON.parse(
+    sessionStorage.getItem("recentActivity") || "[]"
+  );
+  return activities.slice(0, 10); // Last 10 activities
+}
+
+// Add activity to timeline
+function addActivity(type, message) {
+  const activities = getRecentActivity();
+  activities.unshift({
+    timestamp: new Date().toISOString(),
+    type,
+    message,
+  });
+  sessionStorage.setItem(
+    "recentActivity",
+    JSON.stringify(activities.slice(0, 20))
+  );
+  updateJobTimeline();
 }
 
 async function handleExcelFileChange() {
@@ -604,7 +929,14 @@ function showTab(tabName) {
   document.querySelectorAll(".nav-link").forEach((link) => {
     link.classList.remove("active");
   });
-  event.target.classList.add("active");
+
+  // Find and activate the clicked link
+  const clickedLink = document.querySelector(
+    `.nav-link[onclick="showTab('${tabName}')"]`
+  );
+  if (clickedLink) {
+    clickedLink.classList.add("active");
+  }
 
   // Refresh report if switching to report tab
   if (tabName === "report") {
@@ -612,10 +944,14 @@ function showTab(tabName) {
   }
 }
 
+// Modified sendEmails function
 async function sendEmails() {
   // Validate required fields first
   const subjectField = document.querySelector('input[name="subject"]');
   const excelFileField = document.querySelector('input[name="excelFile"]');
+  const htmlTemplateField = document.querySelector(
+    'input[name="htmlTemplate"]'
+  );
 
   if (!subjectField || !subjectField.value.trim()) {
     showAlert("danger", "❌ Subject is required");
@@ -628,14 +964,19 @@ async function sendEmails() {
     return;
   }
 
-  // Check if content is provided
+  // Check if content is provided (either editor or HTML template)
   const htmlContent = quill.root.innerHTML;
+  const hasHtmlTemplate =
+    htmlTemplateField.files && htmlTemplateField.files.length > 0;
+
   if (
-    !htmlContent ||
-    htmlContent.trim() === "" ||
-    htmlContent === "<p><br></p>"
+    !hasHtmlTemplate &&
+    (!htmlContent || htmlContent.trim() === "" || htmlContent === "<p><br></p>")
   ) {
-    showAlert("danger", "❌ Email content is required");
+    showAlert(
+      "danger",
+      "❌ Email content is required (either in editor or HTML template)"
+    );
     return;
   }
 
@@ -645,13 +986,17 @@ async function sendEmails() {
   // Manually add the subject field to ensure it's included
   formData.set("subject", subjectField.value.trim());
 
-  // Add Quill content to form data
+  // Add Quill content to form data (even if empty, backend will handle)
   formData.set("htmlContent", htmlContent);
 
   // Add batch processing fields
   const useBatchElement = document.getElementById("useBatch");
   const useBatch = useBatchElement ? useBatchElement.checked : false;
   formData.set("useBatch", useBatch ? "on" : "off");
+
+  let batchSize = "20",
+    batchDelay = "60",
+    emailDelay = "45";
 
   if (useBatch) {
     const batchSizeElement = document.querySelector('input[name="batchSize"]');
@@ -662,9 +1007,9 @@ async function sendEmails() {
       'input[name="emailDelay"]'
     );
 
-    const batchSize = batchSizeElement ? batchSizeElement.value : "20";
-    const batchDelay = batchDelayElement ? batchDelayElement.value : "60";
-    const emailDelay = emailDelayElement ? emailDelayElement.value : "45";
+    batchSize = batchSizeElement ? batchSizeElement.value : "20";
+    batchDelay = batchDelayElement ? batchDelayElement.value : "60";
+    emailDelay = emailDelayElement ? emailDelayElement.value : "45";
 
     formData.set("batchSize", batchSize);
     formData.set("batchDelay", batchDelay);
@@ -691,8 +1036,7 @@ async function sendEmails() {
 
   // Add file inputs to form data
   const excelFile = excelFileField.files[0];
-  const htmlTemplate = document.querySelector('input[name="htmlTemplate"]')
-    .files[0];
+  const htmlTemplate = htmlTemplateField.files[0];
 
   if (excelFile) {
     formData.set("excelFile", excelFile);
@@ -737,22 +1081,10 @@ async function sendEmails() {
     }
   });
 
-  // Debug: Log what we're about to send
-  console.log("Form data being sent:");
-  for (const [key, value] of formData.entries()) {
-    if (value instanceof File) {
-      console.log(`${key}: File - ${value.name} (${value.size} bytes)`);
-    } else if (key.includes("Pass")) {
-      console.log(`${key}: [HIDDEN]`);
-    } else {
-      console.log(`${key}: ${value}`);
-    }
-  }
-
   // Update button state
   const sendButton = document.getElementById("sendButtonText");
   const spinner = document.getElementById("sendButtonSpinner");
-  sendButton.textContent = "Sending...";
+  sendButton.textContent = "Processing...";
   spinner.classList.remove("d-none");
 
   try {
@@ -766,42 +1098,66 @@ async function sendEmails() {
     console.log("Send response:", result);
 
     if (result.success) {
-      let message = `✅ ${result.message}`;
+      let title, message, details;
 
       if (result.scheduledMode) {
-        showAlert("success", message);
+        title = "📅 Campaign Scheduled!";
+        message = `Your campaign for ${result.contactCount} contacts has been scheduled`;
+        details = `Scheduled Time: ${new Date(
+          result.scheduledTime
+        ).toLocaleString()}<br>
+                  Mode: ${
+                    result.batchMode ? "Batch Processing" : "Normal Send"
+                  }<br>
+                  Job ID: ${result.jobId}`;
+
+        showSuccessModal(title, message, details);
         refreshScheduledJobs();
+        loadJobDashboard();
+
+        // Add to activity timeline
+        addActivity(
+          "scheduled",
+          `Scheduled ${result.contactCount} emails for ${new Date(
+            result.scheduledTime
+          ).toLocaleString()}`
+        );
 
         // Show browser notification if enabled
         if (notifyBrowser && "Notification" in window) {
           new Notification("📅 Email Campaign Scheduled", {
-            body: `Your campaign for ${
-              result.contactCount
-            } contacts has been scheduled for ${new Date(
-              result.scheduledTime
-            ).toLocaleString()}`,
+            body: message,
             icon: "/favicon.ico",
           });
         }
       } else if (result.batchMode) {
-        if (result.usingEnvConfig) {
-          message += " (Using .env configuration)";
-        }
+        title = "⚡ Batch Processing Started!";
+        message = `Sending ${result.contactCount} emails in batches`;
+        details = `Batch Size: ${batchSize} emails<br>
+                  Delay Between Batches: ${batchDelay} minutes<br>
+                  Email Delay: ${emailDelay} seconds<br>
+                  Job ID: ${result.jobId}`;
 
-        showAlert("success", message);
+        showSuccessModal(title, message, details);
         startBatchMonitoring();
-        setTimeout(() => {
-          showTab("report");
-        }, 2000);
+
+        // Add to activity timeline
+        addActivity(
+          "started",
+          `Started batch job for ${result.contactCount} emails`
+        );
       } else {
-        if (result.usingEnvConfig) {
-          message += " (Using .env configuration)";
-        }
-        showAlert("success", message);
-        // Switch to report tab to see progress
-        setTimeout(() => {
-          showTab("report");
-        }, 2000);
+        title = "🚀 Email Sending Started!";
+        message = `Sending emails to ${result.contactCount} contacts`;
+        details = result.usingEnvConfig ? "Using .env configuration" : null;
+
+        showSuccessModal(title, message, details);
+
+        // Add to activity timeline
+        addActivity(
+          "started",
+          `Started sending to ${result.contactCount} contacts`
+        );
       }
     } else {
       showAlert("danger", `❌ ${result.message}`);
@@ -823,7 +1179,8 @@ function testSMTPConnection() {
   // This would be implemented as a separate endpoint if needed
 }
 
-async function refreshReport() {
+// Modified refreshReport to accept silent parameter
+async function refreshReport(silent = false) {
   try {
     const response = await fetch("/report");
     const result = await response.json();
@@ -831,10 +1188,18 @@ async function refreshReport() {
     if (result.success) {
       displayStats(result.data.stats);
       displayLogs(result.data.logs);
+
+      // Also update batch status if visible
+      const batchContainer = document.getElementById("batchStatusContainer");
+      if (batchContainer && !batchContainer.classList.contains("d-none")) {
+        checkBatchStatus();
+      }
     }
   } catch (error) {
     console.error("Error fetching report:", error);
-    showAlert("danger", "Failed to load report data");
+    if (!silent) {
+      showAlert("danger", "Failed to load report data");
+    }
   }
 }
 
@@ -1003,12 +1368,12 @@ function previewEmail() {
 
 function showAlert(type, message) {
   // Remove existing alerts
-  const existingAlerts = document.querySelectorAll(".alert");
+  const existingAlerts = document.querySelectorAll(".alert.auto-dismiss");
   existingAlerts.forEach((alert) => alert.remove());
 
   // Create new alert
   const alert = document.createElement("div");
-  alert.className = `alert alert-${type} alert-dismissible fade show`;
+  alert.className = `alert alert-${type} alert-dismissible fade show auto-dismiss`;
   alert.innerHTML = `
         ${message}
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>

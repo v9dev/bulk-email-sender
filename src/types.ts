@@ -49,8 +49,34 @@ export interface SMTPDefaults {
   fromName?: string;
 }
 
+// ADD THESE NEW INTERFACES:
+export interface BatchConfig {
+  batchSize: number;
+  emailDelay: number;
+  batchDelay: number;
+  enabled: boolean;
+}
 
-// Add these new interfaces to existing types.ts:
+export interface BatchJob {
+  id: string;
+  totalContacts: number;
+  currentBatch: number;
+  totalBatches: number;
+  emailsSent: number;
+  emailsFailed: number;
+  status: 'Running' | 'Paused' | 'Completed' | 'Failed';
+  startTime: string;
+  config: BatchConfig;
+  emailJob: EmailJob;
+  nextBatchTime?: string;
+}
+
+export interface BatchStatus {
+  isRunning: boolean;
+  currentJob: BatchJob | null;
+  totalJobs: number;
+  completedJobs: number;
+}
 
 export interface ScheduledJob {
   id: string;
@@ -71,6 +97,15 @@ export interface ScheduledJob {
 export interface NotificationSettings {
   email?: string;
   browser?: boolean;
+}
+
+export interface NotificationConfig {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  fromName: string;
 }
 
 export interface ProviderLimits {
