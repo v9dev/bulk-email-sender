@@ -15,6 +15,14 @@ export class EmailService {
     });
   }
 
+  // ADD THIS NEW METHOD
+  async sendSingleEmail(mailOptions: any): Promise<any> {
+    if (!this.transporter) {
+      throw new Error("Email transporter not configured");
+    }
+    return await this.transporter.sendMail(mailOptions);
+  }
+
   async sendBulkEmails(job: EmailJob): Promise<void> {
     if (!this.transporter) {
       throw new Error("Email transporter not configured");
