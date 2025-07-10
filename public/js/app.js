@@ -6,6 +6,11 @@ let reportRefreshInterval;
 let countdownInterval;
 let jobDashboardInterval;
 
+// NEW: Add toggle variables
+let currentMode = "env"; // Track current mode
+let envConfig = {};
+let customConfig = {};
+
 document.addEventListener("DOMContentLoaded", function () {
   // Initialize Quill
   quill = new Quill("#editor", {
@@ -129,6 +134,178 @@ document.addEventListener("DOMContentLoaded", function () {
   // Poll dashboard every 3 seconds
   jobDashboardInterval = setInterval(loadJobDashboard, 3000);
 });
+
+// NEW: SMTP Mode Toggle Functions
+async function toggleSMTPMode() {
+  const newMode = currentMode === "env" ? "custom" : "env";
+
+  try {
+    const response = await fetch("/config/smtp/mode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: newMode }),
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      currentMode = result.currentMode;
+      showAlert("success", result.message);
+
+      // Reload configuration to reflect the change
+      await loadSMTPDefaults();
+    } else {
+      showAlert("danger", result.message);
+    }
+  } catch (error) {
+    showAlert("danger", `❌ Failed to switch mode: ${error.message}`);
+  }
+}
+
+function updateModeDisplay() {
+  const modeButton = document.getElementById("modeToggleButton");
+  const modeIndicator = document.getElementById("modeIndicator");
+  const configStatus = document.getElementById("configStatus");
+
+  if (currentMode === "env") {
+    // .env mode
+    modeButton.innerHTML = "⚙️ Use Custom Settings";
+    modeButton.className = "btn btn-outline-warning btn-sm";
+    modeIndicator.innerHTML = "🔒 Using .env Configuration";
+    modeIndicator.className = "config-status-locked";
+    configStatus.innerHTML =
+      '<span class="config-status-locked">🔒 .env Mode</span>';
+
+    // Lock all fields
+    lockSMTPFields(true);
+  } else {
+    // Custom mode
+    modeButton.innerHTML = "🔒 Use .env Settings";
+    modeButton.className = "btn btn-outline-success btn-sm";
+    modeIndicator.innerHTML = "⚙️ Using Custom Configuration";
+    modeIndicator.className = "config-status-editable";
+    configStatus.innerHTML =
+      '<span class="config-status-editable">⚙️ Custom Mode</span>';
+
+    // Unlock all fields
+    lockSMTPFields(false);
+    setupSMTPConfigSaving();
+  }
+}
+
+function lockSMTPFields(locked) {
+  const fieldNames = [
+    "smtpHost",
+    "smtpPort",
+    "smtpSecure",
+    "smtpUser",
+    "smtpPass",
+    "fromEmail",
+    "fromName",
+  ];
+
+  fieldNames.forEach((name) => {
+    const field = document.querySelector(
+      `input[name="${name}"], input[id="${name}"]`
+    );
+    if (field) {
+      field.disabled = locked;
+
+      if (locked) {
+        field.classList.add("field-locked");
+        field.style.cursor = "not-allowed";
+      } else {
+        field.classList.remove("field-locked");
+        field.style.cursor = "text";
+      }
+    }
+  });
+
+  // Handle labels
+  document.querySelectorAll(".form-label").forEach((label) => {
+    const existingLock = label.querySelector(".lock-indicator");
+    if (locked && !existingLock) {
+      const lockIcon = document.createElement("span");
+      lockIcon.innerHTML = " 🔒";
+      lockIcon.className = "lock-indicator";
+      lockIcon.title = "Locked - using .env configuration";
+      label.appendChild(lockIcon);
+    } else if (!locked && existingLock) {
+      existingLock.remove();
+    }
+  });
+}
+
+function setupSMTPConfigSaving() {
+  if (currentMode === "env") {
+    return; // Don't setup saving in env mode
+  }
+
+  const smtpFields = [
+    "smtpHost",
+    "smtpPort",
+    "smtpSecure",
+    "smtpUser",
+    "smtpPass",
+    "fromEmail",
+    "fromName",
+  ];
+
+  smtpFields.forEach((name) => {
+    const input = document.querySelector(`[name="${name}"], [id="${name}"]`);
+    if (input && !input.disabled) {
+      // Remove existing listeners to prevent duplicates
+      input.removeEventListener("change", debouncedSave);
+      input.addEventListener("change", debouncedSave);
+    }
+  });
+}
+
+const debouncedSave = debounce(saveSMTPConfig, 500);
+
+function debounce(fn, delay) {
+  let timer;
+  return function (...args) {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), delay);
+  };
+}
+
+async function saveSMTPConfig() {
+  if (currentMode === "env") {
+    showAlert("warning", "🔒 Cannot modify settings in .env mode");
+    return;
+  }
+
+  const data = {
+    host: document.querySelector('[name="smtpHost"]').value,
+    port: parseInt(document.querySelector('[name="smtpPort"]').value),
+    secure: document.querySelector('[name="smtpSecure"]').checked,
+    user: document.querySelector('[name="smtpUser"]').value,
+    pass: document.querySelector('[name="smtpPass"]').value,
+    fromEmail: document.querySelector('[name="fromEmail"]').value,
+    fromName: document.querySelector('[name="fromName"]').value,
+  };
+
+  try {
+    const response = await fetch("/config/smtp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+
+    const result = await response.json();
+    if (result.success) {
+      customConfig = result.data;
+      console.log("✅ Custom SMTP config saved");
+    } else {
+      showAlert("danger", result.message);
+    }
+  } catch (err) {
+    console.error("Error saving custom SMTP config:", err);
+    showAlert("danger", "❌ Failed to save custom configuration");
+  }
+}
 
 // Handle HTML template upload
 async function handleHtmlTemplateChange() {
@@ -823,6 +1000,7 @@ async function parseExcelFile(file) {
   }
 }
 
+// UPDATED: loadSMTPDefaults with toggle support
 async function loadSMTPDefaults() {
   try {
     const response = await fetch("/config/smtp");
@@ -830,89 +1008,67 @@ async function loadSMTPDefaults() {
 
     if (result.success) {
       smtpDefaults = result.data;
+      currentMode = result.currentMode || "env";
+      envConfig = result.envConfig || {};
+      customConfig = result.customConfig || {};
 
-      // Populate form fields with defaults if they exist
+      // Populate form fields
       if (result.hasConfig) {
-        const hostField = document.querySelector('input[name="smtpHost"]');
-        const portField = document.querySelector('input[name="smtpPort"]');
-        const secureField = document.querySelector('input[name="smtpSecure"]');
-        const userField = document.querySelector('input[name="smtpUser"]');
-        const passField = document.querySelector('input[name="smtpPass"]');
-        const fromEmailField = document.querySelector(
-          'input[name="fromEmail"]'
-        );
-        const fromNameField = document.querySelector('input[name="fromName"]');
+        const fields = {
+          smtpHost: result.data.host,
+          smtpPort: result.data.port,
+          smtpSecure: result.data.secure,
+          smtpUser: result.data.user,
+          smtpPass: result.data.pass,
+          fromEmail: result.data.fromEmail,
+          fromName: result.data.fromName,
+        };
 
-        if (smtpDefaults.host && hostField) {
-          hostField.value = smtpDefaults.host;
-          hostField.removeAttribute("required");
-          hostField.classList.add("bg-light");
-          hostField.readOnly = true;
-        }
+        Object.entries(fields).forEach(([name, value]) => {
+          const field = document.querySelector(
+            `[name="${name}"], [id="${name}"]`
+          );
+          if (field) {
+            if (field.type === "checkbox") {
+              field.checked = value;
+            } else if (name === "smtpPass" && value) {
+              field.placeholder = "••••••••••••••••";
+              field.value = "";
+            } else {
+              field.value = value || "";
+            }
+          }
+        });
 
-        if (smtpDefaults.port && portField) {
-          portField.value = smtpDefaults.port;
-        }
+        // Update mode display and field states
+        updateModeDisplay();
 
-        if (smtpDefaults.secure !== undefined && secureField) {
-          secureField.checked = smtpDefaults.secure;
-        }
-
-        if (smtpDefaults.user && userField) {
-          userField.value = smtpDefaults.user;
-          userField.removeAttribute("required");
-          userField.classList.add("bg-light");
-          userField.readOnly = true;
-        }
-
-        if (smtpDefaults.pass && passField) {
-          // For app passwords, just show that it's configured
-          passField.placeholder = "••••••••••••••••";
-          passField.value = ""; // Don't show the actual password
-          passField.removeAttribute("required");
-          passField.classList.add("bg-light");
-
-          // Add helpful text
-          const helpText = document.createElement("small");
-          helpText.className = "text-success";
-          helpText.innerHTML = "✅ App password configured in .env file";
-          passField.parentNode.appendChild(helpText);
-        }
-
-        if (smtpDefaults.fromEmail && fromEmailField) {
-          fromEmailField.value = smtpDefaults.fromEmail;
-          fromEmailField.removeAttribute("required");
-          fromEmailField.classList.add("bg-light");
-          fromEmailField.readOnly = true;
-        }
-
-        if (smtpDefaults.fromName && fromNameField) {
-          fromNameField.value = smtpDefaults.fromName;
-          fromNameField.classList.add("bg-light");
-          fromNameField.readOnly = true;
-        }
-
-        // Show success message
-        showAlert(
-          "success",
-          "✅ SMTP configuration loaded from environment variables. App password is configured - no need to enter it again!"
-        );
-
-        // Show environment config alert
-        const envAlert = document.getElementById("envConfigAlert");
-        if (envAlert) {
-          envAlert.classList.remove("d-none");
+        if (result.hasEnvConfig) {
+          showAlert(
+            "success",
+            `✅ SMTP configuration loaded in ${
+              currentMode === "env" ? ".env" : "custom"
+            } mode`
+          );
+        } else {
+          showAlert(
+            "warning",
+            "⚠️ No .env configuration found. Using custom mode."
+          );
+          currentMode = "custom";
+          updateModeDisplay();
         }
       } else {
-        showAlert(
-          "warning",
-          "⚠️ No SMTP configuration found in .env file. Please configure manually."
-        );
+        showAlert("warning", "⚠️ No SMTP configuration found");
+        currentMode = "custom";
+        updateModeDisplay();
       }
     }
   } catch (error) {
     console.error("Error loading SMTP defaults:", error);
     showAlert("info", "ℹ️ Using manual SMTP configuration");
+    currentMode = "custom";
+    updateModeDisplay();
   }
 }
 
@@ -944,7 +1100,7 @@ function showTab(tabName) {
   }
 }
 
-// Modified sendEmails function
+// UPDATED: sendEmails function with toggle support
 async function sendEmails() {
   // Validate required fields first
   const subjectField = document.querySelector('input[name="subject"]');
@@ -1046,7 +1202,8 @@ async function sendEmails() {
     formData.set("htmlTemplate", htmlTemplate);
   }
 
-  // Handle environment variable defaults more intelligently
+  // UPDATED: Handle environment variable defaults with toggle support
+  const activeConfig = currentMode === "env" ? envConfig : customConfig;
   const fieldsToCheck = [
     "smtpHost",
     "smtpUser",
@@ -1054,30 +1211,27 @@ async function sendEmails() {
     "fromEmail",
     "fromName",
   ];
+
   fieldsToCheck.forEach((fieldName) => {
     const field = document.querySelector(`input[name="${fieldName}"]`);
-    const envKey = fieldName.replace("smtp", "").toLowerCase();
+    const configKey = fieldName.replace("smtp", "").toLowerCase();
 
-    // If field is empty but we have env default, use the env value
     if (
       field &&
       (!field.value || field.value.trim() === "") &&
-      smtpDefaults[envKey]
+      activeConfig[configKey]
     ) {
-      console.log(`Using environment default for ${fieldName}`);
-      formData.set(fieldName, smtpDefaults[envKey]);
+      console.log(`Using ${currentMode} config for ${fieldName}`);
+      formData.set(fieldName, activeConfig[configKey]);
     }
 
-    // Special handling for password field when using app password
     if (
       fieldName === "smtpPass" &&
       field &&
       field.placeholder === "••••••••••••••••" &&
-      smtpDefaults.pass
+      activeConfig.pass
     ) {
-      // If password field shows placeholder (meaning we have env password), use env value
-      formData.set("smtpPass", smtpDefaults.pass);
-      console.log("Using app password from environment");
+      formData.set("smtpPass", activeConfig.pass);
     }
   });
 
@@ -1149,7 +1303,9 @@ async function sendEmails() {
       } else {
         title = "🚀 Email Sending Started!";
         message = `Sending emails to ${result.contactCount} contacts`;
-        details = result.usingEnvConfig ? "Using .env configuration" : null;
+        details = result.usingEnvConfig
+          ? `Using ${currentMode} configuration`
+          : null;
 
         showSuccessModal(title, message, details);
 
