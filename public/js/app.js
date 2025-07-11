@@ -1,3 +1,5 @@
+// public/js/app.js - COMPLETE VERSION WITH USER MANAGEMENT + ALL EXISTING FEATURES (PART 1)
+
 // Initialize Quill editor
 let quill;
 let smtpDefaults = {};
@@ -6,12 +8,79 @@ let reportRefreshInterval;
 let countdownInterval;
 let jobDashboardInterval;
 
-// NEW: Add toggle variables
-let currentMode = "env"; // Track current mode
-let envConfig = {};
-let customConfig = {};
+// NEW: User management variables
+let currentUser = null;
+let userConfigs = [];
+let selectedConfigId = null;
 
 document.addEventListener("DOMContentLoaded", function () {
+  // Initialize user management first
+  initializeUserManagement();
+});
+
+// NEW: Initialize user management
+async function initializeUserManagement() {
+  try {
+    await loadUserInfo();
+    await loadUserConfigs();
+    initializeExistingFeatures();
+  } catch (error) {
+    console.error("Initialization error:", error);
+    window.location.href = "/login";
+  }
+}
+
+// NEW: Load user information
+async function loadUserInfo() {
+  try {
+    const response = await fetch("/user/info");
+    const result = await response.json();
+
+    if (result.success) {
+      currentUser = result.user;
+      document.getElementById("userName").textContent = result.user.name;
+      document.getElementById("userEmail").textContent = result.user.email;
+    } else {
+      // Not authenticated, redirect to login
+      window.location.href = "/login";
+    }
+  } catch (error) {
+    console.error("Error loading user info:", error);
+    window.location.href = "/login";
+  }
+}
+
+// NEW: Load user's SMTP configurations
+async function loadUserConfigs() {
+  try {
+    const response = await fetch("/config/smtp");
+    const result = await response.json();
+
+    if (result.success) {
+      userConfigs = result.userConfigs || [];
+      displayConfigList();
+      displayConfigsManagement();
+
+      // Select default config if available
+      const defaultConfig = userConfigs.find((c) => c.isDefault);
+      if (defaultConfig) {
+        selectConfig(defaultConfig.id);
+      }
+
+      // Update status
+      document.getElementById("configStatus").textContent =
+        userConfigs.length > 0
+          ? `${userConfigs.length} configs available`
+          : "No configs";
+    }
+  } catch (error) {
+    console.error("Error loading configs:", error);
+    showAlert("danger", "Failed to load SMTP configurations");
+  }
+}
+
+// Initialize all existing features
+function initializeExistingFeatures() {
   // Initialize Quill
   quill = new Quill("#editor", {
     theme: "snow",
@@ -29,9 +98,6 @@ document.addEventListener("DOMContentLoaded", function () {
       ],
     },
   });
-
-  // Load SMTP configuration from server
-  loadSMTPDefaults();
 
   // Load initial report
   refreshReport();
@@ -107,17 +173,8 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
-  // Provider detection on SMTP host change
-  const smtpHostField = document.querySelector('input[name="smtpHost"]');
-  if (smtpHostField) {
-    smtpHostField.addEventListener("blur", checkProviderLimits);
-  }
-
-  // Notification email change
-  const notifyEmailField = document.querySelector('input[name="notifyEmail"]');
-  if (notifyEmailField) {
-    notifyEmailField.addEventListener("input", checkProviderLimits);
-  }
+  // Provider detection on SMTP host change (if needed for new configs)
+  // This will be handled in the new config form
 
   // Request browser notification permission
   if ("Notification" in window && Notification.permission === "default") {
@@ -133,177 +190,574 @@ document.addEventListener("DOMContentLoaded", function () {
 
   // Poll dashboard every 3 seconds
   jobDashboardInterval = setInterval(loadJobDashboard, 3000);
-});
-
-// NEW: SMTP Mode Toggle Functions
-async function toggleSMTPMode() {
-  const newMode = currentMode === "env" ? "custom" : "env";
-
-  try {
-    const response = await fetch("/config/smtp/mode", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: newMode }),
-    });
-
-    const result = await response.json();
-
-    if (result.success) {
-      currentMode = result.currentMode;
-      showAlert("success", result.message);
-
-      // Reload configuration to reflect the change
-      await loadSMTPDefaults();
-    } else {
-      showAlert("danger", result.message);
-    }
-  } catch (error) {
-    showAlert("danger", `❌ Failed to switch mode: ${error.message}`);
-  }
 }
+// public/js/app.js - COMPLETE VERSION (PART 2) - USER MANAGEMENT FUNCTIONS
 
-function updateModeDisplay() {
-  const modeButton = document.getElementById("modeToggleButton");
-  const modeIndicator = document.getElementById("modeIndicator");
-  const configStatus = document.getElementById("configStatus");
+// NEW: Display configuration list in compose tab
+function displayConfigList() {
+  const container = document.getElementById("configList");
 
-  if (currentMode === "env") {
-    // .env mode
-    modeButton.innerHTML = "⚙️ Use Custom Settings";
-    modeButton.className = "btn btn-outline-warning btn-sm";
-    modeIndicator.innerHTML = "🔒 Using .env Configuration";
-    modeIndicator.className = "config-status-locked";
-    configStatus.innerHTML =
-      '<span class="config-status-locked">🔒 .env Mode</span>';
-
-    // Lock all fields
-    lockSMTPFields(true);
-  } else {
-    // Custom mode
-    modeButton.innerHTML = "🔒 Use .env Settings";
-    modeButton.className = "btn btn-outline-success btn-sm";
-    modeIndicator.innerHTML = "⚙️ Using Custom Configuration";
-    modeIndicator.className = "config-status-editable";
-    configStatus.innerHTML =
-      '<span class="config-status-editable">⚙️ Custom Mode</span>';
-
-    // Unlock all fields
-    lockSMTPFields(false);
-    setupSMTPConfigSaving();
-  }
-}
-
-function lockSMTPFields(locked) {
-  const fieldNames = [
-    "smtpHost",
-    "smtpPort",
-    "smtpSecure",
-    "smtpUser",
-    "smtpPass",
-    "fromEmail",
-    "fromName",
-  ];
-
-  fieldNames.forEach((name) => {
-    const field = document.querySelector(
-      `input[name="${name}"], input[id="${name}"]`
-    );
-    if (field) {
-      field.disabled = locked;
-
-      if (locked) {
-        field.classList.add("field-locked");
-        field.style.cursor = "not-allowed";
-      } else {
-        field.classList.remove("field-locked");
-        field.style.cursor = "text";
-      }
-    }
-  });
-
-  // Handle labels
-  document.querySelectorAll(".form-label").forEach((label) => {
-    const existingLock = label.querySelector(".lock-indicator");
-    if (locked && !existingLock) {
-      const lockIcon = document.createElement("span");
-      lockIcon.innerHTML = " 🔒";
-      lockIcon.className = "lock-indicator";
-      lockIcon.title = "Locked - using .env configuration";
-      label.appendChild(lockIcon);
-    } else if (!locked && existingLock) {
-      existingLock.remove();
-    }
-  });
-}
-
-function setupSMTPConfigSaving() {
-  if (currentMode === "env") {
-    return; // Don't setup saving in env mode
-  }
-
-  const smtpFields = [
-    "smtpHost",
-    "smtpPort",
-    "smtpSecure",
-    "smtpUser",
-    "smtpPass",
-    "fromEmail",
-    "fromName",
-  ];
-
-  smtpFields.forEach((name) => {
-    const input = document.querySelector(`[name="${name}"], [id="${name}"]`);
-    if (input && !input.disabled) {
-      // Remove existing listeners to prevent duplicates
-      input.removeEventListener("change", debouncedSave);
-      input.addEventListener("change", debouncedSave);
-    }
-  });
-}
-
-const debouncedSave = debounce(saveSMTPConfig, 500);
-
-function debounce(fn, delay) {
-  let timer;
-  return function (...args) {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn.apply(this, args), delay);
-  };
-}
-
-async function saveSMTPConfig() {
-  if (currentMode === "env") {
-    showAlert("warning", "🔒 Cannot modify settings in .env mode");
+  if (userConfigs.length === 0) {
+    container.innerHTML = `
+      <div class="text-muted text-center py-3">
+        <i class="bi bi-gear" style="font-size: 2rem;"></i>
+        <p class="mt-2">No SMTP configurations found</p>
+        <small>Add your first configuration to start sending emails</small>
+      </div>
+    `;
     return;
   }
 
-  const data = {
-    host: document.querySelector('[name="smtpHost"]').value,
-    port: parseInt(document.querySelector('[name="smtpPort"]').value),
-    secure: document.querySelector('[name="smtpSecure"]').checked,
-    user: document.querySelector('[name="smtpUser"]').value,
-    pass: document.querySelector('[name="smtpPass"]').value,
-    fromEmail: document.querySelector('[name="fromEmail"]').value,
-    fromName: document.querySelector('[name="fromName"]').value,
+  container.innerHTML = userConfigs
+    .map(
+      (config) => `
+    <div class="config-item ${selectedConfigId === config.id ? "active" : ""}" 
+         onclick="selectConfig('${config.id}')">
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <h6 class="mb-1">
+            ${config.name}
+            ${
+              config.isDefault
+                ? '<span class="config-badge ms-2">DEFAULT</span>'
+                : ""
+            }
+          </h6>
+          <small class="text-muted">
+            ${config.host}:${config.port} • ${config.fromEmail}
+          </small>
+        </div>
+        <div class="dropdown">
+          <button class="btn btn-sm btn-outline-secondary dropdown-toggle" 
+                  data-bs-toggle="dropdown" onclick="event.stopPropagation()">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item" href="#" onclick="event.stopPropagation(); editConfig('${
+              config.id
+            }')">
+              <i class="bi bi-pencil me-2"></i>Edit
+            </a></li>
+            <li><a class="dropdown-item" href="#" onclick="event.stopPropagation(); setDefaultConfig('${
+              config.id
+            }')">
+              <i class="bi bi-star me-2"></i>Set as Default
+            </a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item text-danger" href="#" onclick="event.stopPropagation(); deleteConfig('${
+              config.id
+            }')">
+              <i class="bi bi-trash me-2"></i>Delete
+            </a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  `
+    )
+    .join("");
+}
+
+// NEW: Select a configuration
+function selectConfig(configId) {
+  selectedConfigId = configId;
+  const config = userConfigs.find((c) => c.id === configId);
+
+  // Update visual selection
+  document.querySelectorAll(".config-item").forEach((item) => {
+    item.classList.remove("active");
+  });
+  const configElement = document.querySelector(
+    `[onclick*="selectConfig('${configId}')"]`
+  );
+  if (configElement) {
+    configElement.classList.add("active");
+  }
+
+  // Show selected config info
+  const display = document.getElementById("selectedConfigDisplay");
+  const info = document.getElementById("selectedConfigInfo");
+
+  if (config) {
+    info.innerHTML = `<strong>${config.name}</strong> (${config.host} • ${config.fromEmail})`;
+    display.classList.remove("d-none");
+  }
+
+  console.log("Selected config:", config);
+}
+
+// NEW: Show new config form
+function showNewConfigForm() {
+  document.getElementById("newConfigForm").classList.remove("d-none");
+  document.querySelector('#newConfigForm input[name="configName"]').focus();
+}
+
+// NEW: Hide new config form
+function hideNewConfigForm() {
+  document.getElementById("newConfigForm").classList.add("d-none");
+  document.getElementById("newConfigFormElement").reset();
+}
+
+// NEW: Save new configuration
+async function saveNewConfig() {
+  const form = document.getElementById("newConfigFormElement");
+  const formData = new FormData(form);
+
+  const configData = {
+    name: formData.get("configName"),
+    host: formData.get("smtpHost"),
+    port: parseInt(formData.get("smtpPort")),
+    secure: formData.get("smtpSecure") === "on",
+    user: formData.get("smtpUser"),
+    pass: formData.get("smtpPass"),
+    fromEmail: formData.get("fromEmail"),
+    fromName: formData.get("fromName"),
+    isDefault: formData.get("isDefault") === "on",
   };
 
   try {
     const response = await fetch("/config/smtp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      body: JSON.stringify(configData),
     });
 
     const result = await response.json();
+
     if (result.success) {
-      customConfig = result.data;
-      console.log("✅ Custom SMTP config saved");
+      showAlert("success", "SMTP configuration saved successfully");
+      hideNewConfigForm();
+      await loadUserConfigs();
+
+      // Auto-select the new config if it's set as default
+      if (configData.isDefault && result.configId) {
+        selectConfig(result.configId);
+      }
     } else {
-      showAlert("danger", result.message);
+      showAlert("danger", result.message || "Failed to save configuration");
     }
-  } catch (err) {
-    console.error("Error saving custom SMTP config:", err);
-    showAlert("danger", "❌ Failed to save custom configuration");
+  } catch (error) {
+    console.error("Error saving config:", error);
+    showAlert("danger", "Error saving configuration");
+  }
+}
+
+// NEW: Test new configuration
+async function testNewConfig() {
+  const form = document.getElementById("newConfigFormElement");
+  const formData = new FormData(form);
+
+  const testData = {
+    host: formData.get("smtpHost"),
+    port: parseInt(formData.get("smtpPort")),
+    secure: formData.get("smtpSecure") === "on",
+    user: formData.get("smtpUser"),
+    pass: formData.get("smtpPass"),
+  };
+
+  try {
+    const response = await fetch("/config/smtp/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(testData),
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      showAlert("success", "SMTP connection test successful");
+    } else {
+      showAlert("danger", result.message || "SMTP connection test failed");
+    }
+  } catch (error) {
+    console.error("Error testing config:", error);
+    showAlert("danger", "Error testing SMTP connection");
+  }
+}
+
+// NEW: Display configurations management
+function displayConfigsManagement() {
+  const container = document.getElementById("configsManagement");
+
+  if (userConfigs.length === 0) {
+    container.innerHTML = `
+      <div class="text-center py-5">
+        <i class="bi bi-gear" style="font-size: 3rem; color: #dee2e6;"></i>
+        <h5 class="mt-3 text-muted">No SMTP Configurations</h5>
+        <p class="text-muted">Add your first SMTP configuration to start sending emails</p>
+        <button class="btn btn-primary" onclick="showNewConfigForm(); showTab('compose')">
+          <i class="bi bi-plus-circle me-2"></i>Add Configuration
+        </button>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="row">
+      ${userConfigs
+        .map(
+          (config) => `
+        <div class="col-md-6 col-lg-4 mb-4">
+          <div class="card h-100 ${config.isDefault ? "border-success" : ""}">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-start mb-3">
+                <h6 class="card-title mb-0">${config.name}</h6>
+                ${
+                  config.isDefault
+                    ? '<span class="badge bg-success">DEFAULT</span>'
+                    : ""
+                }
+              </div>
+              
+              <div class="mb-3">
+                <small class="text-muted d-block">SMTP Server</small>
+                <strong>${config.host}:${config.port}</strong>
+              </div>
+              
+              <div class="mb-3">
+                <small class="text-muted d-block">From Email</small>
+                <strong>${config.fromEmail}</strong>
+              </div>
+              
+              <div class="mb-3">
+                <small class="text-muted d-block">Security</small>
+                <span class="badge ${
+                  config.secure ? "bg-success" : "bg-warning"
+                }">
+                  ${config.secure ? "TLS/SSL Enabled" : "No TLS/SSL"}
+                </span>
+              </div>
+            </div>
+            
+            <div class="card-footer bg-transparent">
+              <div class="btn-group w-100">
+                <button class="btn btn-outline-primary btn-sm" onclick="setDefaultConfig('${
+                  config.id
+                }')" title="Set as Default">
+                  <i class="bi bi-star"></i>
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="editConfig('${
+                  config.id
+                }')" title="Edit">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                <button class="btn btn-outline-danger btn-sm" onclick="deleteConfig('${
+                  config.id
+                }')" title="Delete">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+// NEW: Set default configuration
+async function setDefaultConfig(configId) {
+  try {
+    const response = await fetch(`/config/smtp/${configId}/default`, {
+      method: "POST",
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      showAlert("success", "Default configuration updated");
+      await loadUserConfigs();
+    } else {
+      showAlert(
+        "danger",
+        result.message || "Failed to update default configuration"
+      );
+    }
+  } catch (error) {
+    console.error("Error setting default config:", error);
+    showAlert("danger", "Error updating default configuration");
+  }
+}
+
+// NEW: Delete configuration
+async function deleteConfig(configId) {
+  const config = userConfigs.find((c) => c.id === configId);
+  if (!confirm(`Are you sure you want to delete "${config.name}"?`)) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`/config/smtp/${configId}`, {
+      method: "DELETE",
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      showAlert("success", "Configuration deleted successfully");
+      await loadUserConfigs();
+
+      // If deleted config was selected, clear selection
+      if (selectedConfigId === configId) {
+        selectedConfigId = null;
+        document
+          .getElementById("selectedConfigDisplay")
+          .classList.add("d-none");
+      }
+    } else {
+      showAlert("danger", result.message || "Failed to delete configuration");
+    }
+  } catch (error) {
+    console.error("Error deleting config:", error);
+    showAlert("danger", "Error deleting configuration");
+  }
+}
+
+// NEW: Edit configuration (placeholder - would open edit form)
+function editConfig(configId) {
+  showAlert(
+    "info",
+    "Edit functionality coming soon. For now, create a new configuration."
+  );
+}
+
+// NEW: Logout function
+async function logout() {
+  try {
+    const response = await fetch("/auth/logout", { method: "POST" });
+    const result = await response.json();
+
+    if (result.success) {
+      window.location.href = "/login";
+    } else {
+      showAlert("danger", "Logout failed");
+    }
+  } catch (error) {
+    console.error("Logout error:", error);
+    // Force redirect even if logout request fails
+    window.location.href = "/login";
+  }
+}
+// public/js/app.js - COMPLETE VERSION (PART 3) - EMAIL SENDING & EXISTING FEATURES
+
+// UPDATED: sendEmails function with user configuration support
+async function sendEmails() {
+  // Check if user has selected a configuration
+  if (!selectedConfigId) {
+    showAlert("danger", "❌ Please select an SMTP configuration first");
+    return;
+  }
+
+  // Validate required fields first
+  const subjectField = document.querySelector('input[name="subject"]');
+  const excelFileField = document.querySelector('input[name="excelFile"]');
+  const htmlTemplateField = document.querySelector(
+    'input[name="htmlTemplate"]'
+  );
+
+  if (!subjectField || !subjectField.value.trim()) {
+    showAlert("danger", "❌ Subject is required");
+    subjectField?.focus();
+    return;
+  }
+
+  if (!excelFileField.files || excelFileField.files.length === 0) {
+    showAlert("danger", "❌ Excel file is required");
+    return;
+  }
+
+  // Check if content is provided (either editor or HTML template)
+  const htmlContent = quill.root.innerHTML;
+  const hasHtmlTemplate =
+    htmlTemplateField.files && htmlTemplateField.files.length > 0;
+
+  if (
+    !hasHtmlTemplate &&
+    (!htmlContent || htmlContent.trim() === "" || htmlContent === "<p><br></p>")
+  ) {
+    showAlert(
+      "danger",
+      "❌ Email content is required (either in editor or HTML template)"
+    );
+    return;
+  }
+
+  // Get selected configuration
+  const selectedConfig = userConfigs.find((c) => c.id === selectedConfigId);
+  if (!selectedConfig) {
+    showAlert("danger", "❌ Selected configuration not found");
+    return;
+  }
+
+  const formData = new FormData();
+
+  // Add configuration data
+  formData.set("configId", selectedConfigId);
+  formData.set("smtpHost", selectedConfig.host);
+  formData.set("smtpPort", selectedConfig.port.toString());
+  formData.set("smtpSecure", selectedConfig.secure ? "on" : "off");
+  formData.set("smtpUser", selectedConfig.user);
+  formData.set("smtpPass", selectedConfig.pass);
+  formData.set("fromEmail", selectedConfig.fromEmail);
+  formData.set("fromName", selectedConfig.fromName || "");
+
+  // Add email content
+  formData.set("subject", subjectField.value.trim());
+  formData.set("htmlContent", htmlContent);
+
+  // Add delay
+  const delayField = document.querySelector('input[name="delay"]');
+  const delay = delayField ? delayField.value : "20";
+  formData.set("delay", delay);
+
+  // Add batch processing fields
+  const useBatchElement = document.getElementById("useBatch");
+  const useBatch = useBatchElement ? useBatchElement.checked : false;
+  formData.set("useBatch", useBatch ? "on" : "off");
+
+  let batchSize = "20",
+    batchDelay = "60",
+    emailDelay = "45";
+
+  if (useBatch) {
+    const batchSizeElement = document.querySelector('input[name="batchSize"]');
+    const batchDelayElement = document.querySelector(
+      'input[name="batchDelay"]'
+    );
+    const emailDelayElement = document.querySelector(
+      'input[name="emailDelay"]'
+    );
+
+    batchSize = batchSizeElement ? batchSizeElement.value : "20";
+    batchDelay = batchDelayElement ? batchDelayElement.value : "60";
+    emailDelay = emailDelayElement ? emailDelayElement.value : "45";
+
+    formData.set("batchSize", batchSize);
+    formData.set("batchDelay", batchDelay);
+    formData.set("emailDelay", emailDelay);
+  }
+
+  // Add scheduling fields
+  const scheduleEmail = document.getElementById("scheduleEmail").checked;
+  const scheduledTime = document.getElementById("scheduledTime").value;
+  const notifyEmail = document.querySelector('input[name="notifyEmail"]').value;
+  const notifyBrowser = document.getElementById("notifyBrowser").checked;
+
+  if (scheduleEmail) {
+    if (!scheduledTime) {
+      showAlert("danger", "❌ Please select a schedule date and time");
+      return;
+    }
+
+    formData.set("scheduleEmail", "on");
+    formData.set("scheduledTime", scheduledTime);
+    if (notifyEmail) formData.set("notifyEmail", notifyEmail);
+    if (notifyBrowser) formData.set("notifyBrowser", "on");
+  }
+
+  // Add file inputs
+  const excelFile = excelFileField.files[0];
+  const htmlTemplate = htmlTemplateField.files[0];
+
+  if (excelFile) {
+    formData.set("excelFile", excelFile);
+  }
+
+  if (htmlTemplate) {
+    formData.set("htmlTemplate", htmlTemplate);
+  }
+
+  // Update button state
+  const sendButton = document.getElementById("sendButtonText");
+  const spinner = document.getElementById("sendButtonSpinner");
+  sendButton.textContent = "Processing...";
+  spinner.classList.remove("d-none");
+
+  try {
+    console.log("Sending email request with config:", selectedConfig.name);
+    const response = await fetch("/send", {
+      method: "POST",
+      body: formData,
+    });
+
+    const result = await response.json();
+    console.log("Send response:", result);
+
+    if (result.success) {
+      let title, message, details;
+
+      if (result.scheduledMode) {
+        title = "📅 Campaign Scheduled!";
+        message = `Your campaign for ${result.contactCount} contacts has been scheduled`;
+        details = `Scheduled Time: ${new Date(
+          result.scheduledTime
+        ).toLocaleString()}<br>
+                  Mode: ${
+                    result.batchMode ? "Batch Processing" : "Normal Send"
+                  }<br>
+                  Configuration: ${selectedConfig.name}<br>
+                  Job ID: ${result.jobId}`;
+
+        showSuccessModal(title, message, details);
+        refreshScheduledJobs();
+        loadJobDashboard();
+
+        addActivity(
+          "scheduled",
+          `Scheduled ${result.contactCount} emails for ${new Date(
+            result.scheduledTime
+          ).toLocaleString()}`
+        );
+
+        if (notifyBrowser && "Notification" in window) {
+          new Notification("📅 Email Campaign Scheduled", {
+            body: message,
+            icon: "/favicon.ico",
+          });
+        }
+      } else if (result.batchMode) {
+        title = "⚡ Batch Processing Started!";
+        message = `Sending ${result.contactCount} emails in batches`;
+        details = `Batch Size: ${batchSize} emails<br>
+                  Delay Between Batches: ${batchDelay} minutes<br>
+                  Email Delay: ${emailDelay} seconds<br>
+                  Configuration: ${selectedConfig.name}<br>
+                  Job ID: ${result.jobId}`;
+
+        showSuccessModal(title, message, details);
+        startBatchMonitoring();
+
+        addActivity(
+          "started",
+          `Started batch job for ${result.contactCount} emails`
+        );
+      } else {
+        title = "🚀 Email Sending Started!";
+        message = `Sending emails to ${result.contactCount} contacts`;
+        details = `Configuration: ${selectedConfig.name}`;
+
+        showSuccessModal(title, message, details);
+
+        addActivity(
+          "started",
+          `Started sending to ${result.contactCount} contacts`
+        );
+      }
+    } else {
+      showAlert("danger", `❌ ${result.message}`);
+    }
+  } catch (error) {
+    console.error("Send error:", error);
+    showAlert("danger", `❌ Error: ${error.message}`);
+  } finally {
+    // Reset button state
+    sendButton.textContent = scheduleEmail
+      ? "📅 Schedule Campaign"
+      : "🚀 Send Emails";
+    spinner.classList.add("d-none");
   }
 }
 
@@ -332,6 +786,83 @@ async function handleHtmlTemplateChange() {
   } else {
     document.getElementById("htmlTemplateStatus").classList.add("d-none");
     document.getElementById("contentOptional").classList.add("d-none");
+  }
+}
+
+// Handle Excel file changes
+async function handleExcelFileChange() {
+  const fileInput = document.querySelector('input[name="excelFile"]');
+  const file = fileInput.files[0];
+
+  if (file) {
+    console.log("Excel file selected:", file.name);
+    showAlert("info", `📄 Excel file "${file.name}" selected. Processing...`);
+
+    try {
+      await parseExcelFile(file);
+    } catch (error) {
+      console.error("Error processing Excel file:", error);
+      showAlert("danger", `❌ Error processing Excel file: ${error.message}`);
+    }
+  }
+}
+
+// Parse Excel file
+async function parseExcelFile(file) {
+  const formData = new FormData();
+  formData.append("excelFile", file);
+
+  try {
+    const response = await fetch("/parse-excel", {
+      method: "POST",
+      body: formData,
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      currentContacts = result.contacts;
+
+      // Show success status
+      const statusDiv = document.getElementById("excelStatus");
+      const detailsSpan = document.getElementById("excelDetails");
+      if (statusDiv && detailsSpan) {
+        statusDiv.classList.remove("d-none");
+        detailsSpan.textContent = `Found ${result.totalCount} contacts. Preview will use real data.`;
+      }
+
+      showAlert(
+        "success",
+        `✅ Excel file processed successfully! Found ${result.totalCount} contacts. Preview updated.`
+      );
+      console.log("Parsed contacts:", currentContacts);
+
+      // Update batch preview if batch mode is enabled
+      const useBatch = document.getElementById("useBatch");
+      if (useBatch && useBatch.checked) {
+        updateBatchPreview();
+      }
+    } else {
+      // Hide status on error
+      const statusDiv = document.getElementById("excelStatus");
+      if (statusDiv) {
+        statusDiv.classList.add("d-none");
+      }
+
+      showAlert("danger", `❌ Failed to parse Excel file: ${result.message}`);
+      currentContacts = [];
+    }
+  } catch (error) {
+    console.error("Error parsing Excel file:", error);
+
+    // Hide status on error
+    const statusDiv = document.getElementById("excelStatus");
+    if (statusDiv) {
+      statusDiv.classList.add("d-none");
+    }
+
+    showAlert("danger", `❌ Error parsing Excel file: ${error.message}`);
+    currentContacts = [];
   }
 }
 
@@ -395,6 +926,7 @@ function showSuccessModal(title, message, details) {
   }, 3000);
 }
 
+// Update batch preview
 function updateBatchPreview() {
   const batchSize =
     parseInt(document.querySelector('input[name="batchSize"]').value) || 20;
@@ -420,6 +952,54 @@ function updateBatchPreview() {
     previewElement.innerHTML = preview;
   }
 }
+
+// Preview email function
+function previewEmail() {
+  const subject = document.querySelector('input[name="subject"]').value;
+  const content = quill.root.innerHTML;
+
+  // Use actual data from uploaded Excel file if available
+  let sampleData = {
+    FirstName: "John",
+    LastName: "Doe",
+    Company: "Example Corp",
+    Email: "john.doe@example.com",
+  };
+
+  // If we have parsed contacts, use the first contact for preview
+  if (currentContacts && currentContacts.length > 0) {
+    sampleData = { ...currentContacts[0] };
+    console.log("Using real contact data for preview:", sampleData);
+  } else {
+    console.log("Using sample data for preview (no Excel file parsed yet)");
+  }
+
+  // Replace placeholders for preview
+  let previewSubject = subject;
+  let previewContent = content;
+
+  Object.keys(sampleData).forEach((key) => {
+    const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, "g");
+    previewSubject = previewSubject.replace(placeholder, sampleData[key] || "");
+    previewContent = previewContent.replace(placeholder, sampleData[key] || "");
+  });
+
+  document.getElementById("previewSubject").textContent = previewSubject;
+  document.getElementById("previewContent").innerHTML = previewContent;
+
+  // Show which data source was used
+  const previewInfo =
+    currentContacts && currentContacts.length > 0
+      ? `<div class="alert alert-info mb-3">📄 Preview using data from: <strong>${sampleData.Email}</strong> (from your Excel file)</div>`
+      : `<div class="alert alert-warning mb-3">⚠️ Preview using sample data. Upload an Excel file to see real data preview.</div>`;
+
+  document.getElementById("previewContent").innerHTML =
+    previewInfo + previewContent;
+
+  const modal = new bootstrap.Modal(document.getElementById("previewModal"));
+  modal.show();
+}
+// public/js/app.js - COMPLETE VERSION (PART 4) - REMAINING FUNCTIONS
 
 // Batch monitoring
 let batchStatusInterval;
@@ -579,60 +1159,6 @@ async function cancelBatch() {
     }
   } catch (error) {
     showAlert("danger", `❌ Error cancelling batch: ${error.message}`);
-  }
-}
-
-// Check provider limits
-async function checkProviderLimits() {
-  const smtpHost = document.querySelector('input[name="smtpHost"]').value;
-  const notifyEmail = document.querySelector('input[name="notifyEmail"]').value;
-
-  if (!smtpHost) return;
-
-  const formData = new FormData();
-  formData.set("smtpHost", smtpHost);
-  formData.set("hasNotification", notifyEmail ? "true" : "false");
-
-  try {
-    const response = await fetch("/provider-info", {
-      method: "POST",
-      body: formData,
-    });
-
-    const result = await response.json();
-
-    if (result.success) {
-      const data = result.data;
-      const limitInfo = document.getElementById("providerLimitInfo");
-      const limitText = document.getElementById("providerLimitText");
-
-      limitText.innerHTML = `
-        <strong>${data.provider}:</strong> ${
-        data.maxContacts
-      } emails/day allowed
-        ${
-          notifyEmail
-            ? "<br><small>⚠️ 1 email reserved for notification</small>"
-            : ""
-        }
-        <br><small>💡 Recommended: ${
-          data.recommendedBatchSize
-        } emails per batch, ${data.recommendedDelay}s delay</small>
-      `;
-
-      limitInfo.style.display = "block";
-
-      // Update batch settings defaults
-      if (data.provider !== "Custom SMTP") {
-        document.querySelector('input[name="batchSize"]').value =
-          data.recommendedBatchSize;
-        document.querySelector('input[name="emailDelay"]').value =
-          data.recommendedDelay;
-        updateBatchPreview();
-      }
-    }
-  } catch (error) {
-    console.error("Error checking provider limits:", error);
   }
 }
 
@@ -925,416 +1451,6 @@ function addActivity(type, message) {
   updateJobTimeline();
 }
 
-async function handleExcelFileChange() {
-  const fileInput = document.querySelector('input[name="excelFile"]');
-  const file = fileInput.files[0];
-
-  if (file) {
-    console.log("Excel file selected:", file.name);
-    showAlert("info", `📄 Excel file "${file.name}" selected. Processing...`);
-
-    try {
-      await parseExcelFile(file);
-    } catch (error) {
-      console.error("Error processing Excel file:", error);
-      showAlert("danger", `❌ Error processing Excel file: ${error.message}`);
-    }
-  }
-}
-
-async function parseExcelFile(file) {
-  const formData = new FormData();
-  formData.append("excelFile", file);
-
-  try {
-    const response = await fetch("/parse-excel", {
-      method: "POST",
-      body: formData,
-    });
-
-    const result = await response.json();
-
-    if (result.success) {
-      currentContacts = result.contacts;
-
-      // Show success status
-      const statusDiv = document.getElementById("excelStatus");
-      const detailsSpan = document.getElementById("excelDetails");
-      if (statusDiv && detailsSpan) {
-        statusDiv.classList.remove("d-none");
-        detailsSpan.textContent = `Found ${result.totalCount} contacts. Preview will use real data.`;
-      }
-
-      showAlert(
-        "success",
-        `✅ Excel file processed successfully! Found ${result.totalCount} contacts. Preview updated.`
-      );
-      console.log("Parsed contacts:", currentContacts);
-
-      // Update batch preview if batch mode is enabled
-      const useBatch = document.getElementById("useBatch");
-      if (useBatch && useBatch.checked) {
-        updateBatchPreview();
-      }
-    } else {
-      // Hide status on error
-      const statusDiv = document.getElementById("excelStatus");
-      if (statusDiv) {
-        statusDiv.classList.add("d-none");
-      }
-
-      showAlert("danger", `❌ Failed to parse Excel file: ${result.message}`);
-      currentContacts = [];
-    }
-  } catch (error) {
-    console.error("Error parsing Excel file:", error);
-
-    // Hide status on error
-    const statusDiv = document.getElementById("excelStatus");
-    if (statusDiv) {
-      statusDiv.classList.add("d-none");
-    }
-
-    showAlert("danger", `❌ Error parsing Excel file: ${error.message}`);
-    currentContacts = [];
-  }
-}
-
-// UPDATED: loadSMTPDefaults with toggle support
-async function loadSMTPDefaults() {
-  try {
-    const response = await fetch("/config/smtp");
-    const result = await response.json();
-
-    if (result.success) {
-      smtpDefaults = result.data;
-      currentMode = result.currentMode || "env";
-      envConfig = result.envConfig || {};
-      customConfig = result.customConfig || {};
-
-      // Populate form fields
-      if (result.hasConfig) {
-        const fields = {
-          smtpHost: result.data.host,
-          smtpPort: result.data.port,
-          smtpSecure: result.data.secure,
-          smtpUser: result.data.user,
-          smtpPass: result.data.pass,
-          fromEmail: result.data.fromEmail,
-          fromName: result.data.fromName,
-        };
-
-        Object.entries(fields).forEach(([name, value]) => {
-          const field = document.querySelector(
-            `[name="${name}"], [id="${name}"]`
-          );
-          if (field) {
-            if (field.type === "checkbox") {
-              field.checked = value;
-            } else if (name === "smtpPass" && value) {
-              field.placeholder = "••••••••••••••••";
-              field.value = "";
-            } else {
-              field.value = value || "";
-            }
-          }
-        });
-
-        // Update mode display and field states
-        updateModeDisplay();
-
-        if (result.hasEnvConfig) {
-          showAlert(
-            "success",
-            `✅ SMTP configuration loaded in ${
-              currentMode === "env" ? ".env" : "custom"
-            } mode`
-          );
-        } else {
-          showAlert(
-            "warning",
-            "⚠️ No .env configuration found. Using custom mode."
-          );
-          currentMode = "custom";
-          updateModeDisplay();
-        }
-      } else {
-        showAlert("warning", "⚠️ No SMTP configuration found");
-        currentMode = "custom";
-        updateModeDisplay();
-      }
-    }
-  } catch (error) {
-    console.error("Error loading SMTP defaults:", error);
-    showAlert("info", "ℹ️ Using manual SMTP configuration");
-    currentMode = "custom";
-    updateModeDisplay();
-  }
-}
-
-function showTab(tabName) {
-  // Hide all tabs
-  document.querySelectorAll(".tab-content").forEach((tab) => {
-    tab.classList.add("d-none");
-  });
-
-  // Show selected tab
-  document.getElementById(tabName + "-tab").classList.remove("d-none");
-
-  // Update navbar active state
-  document.querySelectorAll(".nav-link").forEach((link) => {
-    link.classList.remove("active");
-  });
-
-  // Find and activate the clicked link
-  const clickedLink = document.querySelector(
-    `.nav-link[onclick="showTab('${tabName}')"]`
-  );
-  if (clickedLink) {
-    clickedLink.classList.add("active");
-  }
-
-  // Refresh report if switching to report tab
-  if (tabName === "report") {
-    refreshReport();
-  }
-}
-
-// UPDATED: sendEmails function with toggle support
-async function sendEmails() {
-  // Validate required fields first
-  const subjectField = document.querySelector('input[name="subject"]');
-  const excelFileField = document.querySelector('input[name="excelFile"]');
-  const htmlTemplateField = document.querySelector(
-    'input[name="htmlTemplate"]'
-  );
-
-  if (!subjectField || !subjectField.value.trim()) {
-    showAlert("danger", "❌ Subject is required");
-    subjectField?.focus();
-    return;
-  }
-
-  if (!excelFileField.files || excelFileField.files.length === 0) {
-    showAlert("danger", "❌ Excel file is required");
-    return;
-  }
-
-  // Check if content is provided (either editor or HTML template)
-  const htmlContent = quill.root.innerHTML;
-  const hasHtmlTemplate =
-    htmlTemplateField.files && htmlTemplateField.files.length > 0;
-
-  if (
-    !hasHtmlTemplate &&
-    (!htmlContent || htmlContent.trim() === "" || htmlContent === "<p><br></p>")
-  ) {
-    showAlert(
-      "danger",
-      "❌ Email content is required (either in editor or HTML template)"
-    );
-    return;
-  }
-
-  const form = document.getElementById("emailForm");
-  const formData = new FormData(form);
-
-  // Manually add the subject field to ensure it's included
-  formData.set("subject", subjectField.value.trim());
-
-  // Add Quill content to form data (even if empty, backend will handle)
-  formData.set("htmlContent", htmlContent);
-
-  // Add batch processing fields
-  const useBatchElement = document.getElementById("useBatch");
-  const useBatch = useBatchElement ? useBatchElement.checked : false;
-  formData.set("useBatch", useBatch ? "on" : "off");
-
-  let batchSize = "20",
-    batchDelay = "60",
-    emailDelay = "45";
-
-  if (useBatch) {
-    const batchSizeElement = document.querySelector('input[name="batchSize"]');
-    const batchDelayElement = document.querySelector(
-      'input[name="batchDelay"]'
-    );
-    const emailDelayElement = document.querySelector(
-      'input[name="emailDelay"]'
-    );
-
-    batchSize = batchSizeElement ? batchSizeElement.value : "20";
-    batchDelay = batchDelayElement ? batchDelayElement.value : "60";
-    emailDelay = emailDelayElement ? emailDelayElement.value : "45";
-
-    formData.set("batchSize", batchSize);
-    formData.set("batchDelay", batchDelay);
-    formData.set("emailDelay", emailDelay);
-  }
-
-  // ADD: Scheduling fields
-  const scheduleEmail = document.getElementById("scheduleEmail").checked;
-  const scheduledTime = document.getElementById("scheduledTime").value;
-  const notifyEmail = document.querySelector('input[name="notifyEmail"]').value;
-  const notifyBrowser = document.getElementById("notifyBrowser").checked;
-
-  if (scheduleEmail) {
-    if (!scheduledTime) {
-      showAlert("danger", "❌ Please select a schedule date and time");
-      return;
-    }
-
-    formData.set("scheduleEmail", "on");
-    formData.set("scheduledTime", scheduledTime);
-    if (notifyEmail) formData.set("notifyEmail", notifyEmail);
-    if (notifyBrowser) formData.set("notifyBrowser", "on");
-  }
-
-  // Add file inputs to form data
-  const excelFile = excelFileField.files[0];
-  const htmlTemplate = htmlTemplateField.files[0];
-
-  if (excelFile) {
-    formData.set("excelFile", excelFile);
-  }
-
-  if (htmlTemplate) {
-    formData.set("htmlTemplate", htmlTemplate);
-  }
-
-  // UPDATED: Handle environment variable defaults with toggle support
-  const activeConfig = currentMode === "env" ? envConfig : customConfig;
-  const fieldsToCheck = [
-    "smtpHost",
-    "smtpUser",
-    "smtpPass",
-    "fromEmail",
-    "fromName",
-  ];
-
-  fieldsToCheck.forEach((fieldName) => {
-    const field = document.querySelector(`input[name="${fieldName}"]`);
-    const configKey = fieldName.replace("smtp", "").toLowerCase();
-
-    if (
-      field &&
-      (!field.value || field.value.trim() === "") &&
-      activeConfig[configKey]
-    ) {
-      console.log(`Using ${currentMode} config for ${fieldName}`);
-      formData.set(fieldName, activeConfig[configKey]);
-    }
-
-    if (
-      fieldName === "smtpPass" &&
-      field &&
-      field.placeholder === "••••••••••••••••" &&
-      activeConfig.pass
-    ) {
-      formData.set("smtpPass", activeConfig.pass);
-    }
-  });
-
-  // Update button state
-  const sendButton = document.getElementById("sendButtonText");
-  const spinner = document.getElementById("sendButtonSpinner");
-  sendButton.textContent = "Processing...";
-  spinner.classList.remove("d-none");
-
-  try {
-    console.log("Sending email request...");
-    const response = await fetch("/send", {
-      method: "POST",
-      body: formData,
-    });
-
-    const result = await response.json();
-    console.log("Send response:", result);
-
-    if (result.success) {
-      let title, message, details;
-
-      if (result.scheduledMode) {
-        title = "📅 Campaign Scheduled!";
-        message = `Your campaign for ${result.contactCount} contacts has been scheduled`;
-        details = `Scheduled Time: ${new Date(
-          result.scheduledTime
-        ).toLocaleString()}<br>
-                  Mode: ${
-                    result.batchMode ? "Batch Processing" : "Normal Send"
-                  }<br>
-                  Job ID: ${result.jobId}`;
-
-        showSuccessModal(title, message, details);
-        refreshScheduledJobs();
-        loadJobDashboard();
-
-        // Add to activity timeline
-        addActivity(
-          "scheduled",
-          `Scheduled ${result.contactCount} emails for ${new Date(
-            result.scheduledTime
-          ).toLocaleString()}`
-        );
-
-        // Show browser notification if enabled
-        if (notifyBrowser && "Notification" in window) {
-          new Notification("📅 Email Campaign Scheduled", {
-            body: message,
-            icon: "/favicon.ico",
-          });
-        }
-      } else if (result.batchMode) {
-        title = "⚡ Batch Processing Started!";
-        message = `Sending ${result.contactCount} emails in batches`;
-        details = `Batch Size: ${batchSize} emails<br>
-                  Delay Between Batches: ${batchDelay} minutes<br>
-                  Email Delay: ${emailDelay} seconds<br>
-                  Job ID: ${result.jobId}`;
-
-        showSuccessModal(title, message, details);
-        startBatchMonitoring();
-
-        // Add to activity timeline
-        addActivity(
-          "started",
-          `Started batch job for ${result.contactCount} emails`
-        );
-      } else {
-        title = "🚀 Email Sending Started!";
-        message = `Sending emails to ${result.contactCount} contacts`;
-        details = result.usingEnvConfig
-          ? `Using ${currentMode} configuration`
-          : null;
-
-        showSuccessModal(title, message, details);
-
-        // Add to activity timeline
-        addActivity(
-          "started",
-          `Started sending to ${result.contactCount} contacts`
-        );
-      }
-    } else {
-      showAlert("danger", `❌ ${result.message}`);
-    }
-  } catch (error) {
-    console.error("Send error:", error);
-    showAlert("danger", `❌ Error: ${error.message}`);
-  } finally {
-    // Reset button state
-    sendButton.textContent = scheduleEmail
-      ? "📅 Schedule Campaign"
-      : "🚀 Send Emails";
-    spinner.classList.add("d-none");
-  }
-}
-
-function testSMTPConnection() {
-  showAlert("info", "🔍 Testing SMTP connection...");
-  // This would be implemented as a separate endpoint if needed
-}
-
 // Modified refreshReport to accept silent parameter
 async function refreshReport(silent = false) {
   try {
@@ -1362,39 +1478,39 @@ async function refreshReport(silent = false) {
 function displayStats(stats) {
   const container = document.getElementById("statsContainer");
   container.innerHTML = `
-        <div class="col-md-3">
-            <div class="card stat-card">
-                <div class="card-body text-center">
-                    <h5 class="card-title">${stats.total}</h5>
-                    <p class="card-text">Total Emails</p>
-                </div>
+    <div class="col-md-3">
+        <div class="card stat-card">
+            <div class="card-body text-center">
+                <h5 class="card-title">${stats.total}</h5>
+                <p class="card-text">Total Emails</p>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card stat-card success">
-                <div class="card-body text-center">
-                    <h5 class="card-title text-success">${stats.sent}</h5>
-                    <p class="card-text">Sent Successfully</p>
-                </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card success">
+            <div class="card-body text-center">
+                <h5 class="card-title text-success">${stats.sent}</h5>
+                <p class="card-text">Sent Successfully</p>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card stat-card danger">
-                <div class="card-body text-center">
-                    <h5 class="card-title text-danger">${stats.failed}</h5>
-                    <p class="card-text">Failed</p>
-                </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card danger">
+            <div class="card-body text-center">
+                <h5 class="card-title text-danger">${stats.failed}</h5>
+                <p class="card-text">Failed</p>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card stat-card warning">
-                <div class="card-body text-center">
-                    <h5 class="card-title text-warning">${stats.errors}</h5>
-                    <p class="card-text">Errors</p>
-                </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card warning">
+            <div class="card-body text-center">
+                <h5 class="card-title text-warning">${stats.errors}</h5>
+                <p class="card-text">Errors</p>
             </div>
         </div>
-    `;
+    </div>
+  `;
 }
 
 function displayLogs(logs) {
@@ -1402,29 +1518,29 @@ function displayLogs(logs) {
 
   if (logs.length === 0) {
     tbody.innerHTML = `
-            <tr>
-                <td colspan="8" class="text-center text-muted">No email logs found</td>
-            </tr>
-        `;
+      <tr>
+          <td colspan="8" class="text-center text-muted">No email logs found</td>
+      </tr>
+    `;
     return;
   }
 
   tbody.innerHTML = logs
     .map(
       (log) => `
-        <tr>
-            <td>${log.email}</td>
-            <td><span class="status-${log.status.toLowerCase()}">${
+    <tr>
+        <td>${log.email}</td>
+        <td><span class="status-${log.status.toLowerCase()}">${
         log.status
       }</span></td>
-            <td>${log.firstName || "-"}</td>
-            <td>${log.company || "-"}</td>
-            <td>${log.subject || "-"}</td>
-            <td>${new Date(log.timestamp).toLocaleString()}</td>
-            <td>${log.messageId || "-"}</td>
-            <td>${log.message || "-"}</td>
-        </tr>
-    `
+        <td>${log.firstName || "-"}</td>
+        <td>${log.company || "-"}</td>
+        <td>${log.subject || "-"}</td>
+        <td>${new Date(log.timestamp).toLocaleString()}</td>
+        <td>${log.messageId || "-"}</td>
+        <td>${log.message || "-"}</td>
+    </tr>
+  `
     )
     .join("");
 }
@@ -1476,70 +1592,53 @@ async function clearLogs() {
   }
 }
 
-function previewEmail() {
-  const subject = document.querySelector('input[name="subject"]').value;
-  const content = quill.root.innerHTML;
-
-  // Use actual data from uploaded Excel file if available
-  let sampleData = {
-    FirstName: "John",
-    LastName: "Doe",
-    Company: "Example Corp",
-    Email: "john.doe@example.com",
-  };
-
-  // If we have parsed contacts, use the first contact for preview
-  if (currentContacts && currentContacts.length > 0) {
-    sampleData = { ...currentContacts[0] };
-    console.log("Using real contact data for preview:", sampleData);
-  } else {
-    console.log("Using sample data for preview (no Excel file parsed yet)");
-  }
-
-  // Replace placeholders for preview
-  let previewSubject = subject;
-  let previewContent = content;
-
-  Object.keys(sampleData).forEach((key) => {
-    const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, "g");
-    previewSubject = previewSubject.replace(placeholder, sampleData[key] || "");
-    previewContent = previewContent.replace(placeholder, sampleData[key] || "");
+function showTab(tabName) {
+  // Hide all tabs
+  document.querySelectorAll(".tab-content").forEach((tab) => {
+    tab.classList.add("d-none");
   });
 
-  document.getElementById("previewSubject").textContent = previewSubject;
-  document.getElementById("previewContent").innerHTML = previewContent;
+  // Show selected tab
+  document.getElementById(tabName + "-tab").classList.remove("d-none");
 
-  // Show which data source was used
-  const previewInfo =
-    currentContacts && currentContacts.length > 0
-      ? `<div class="alert alert-info mb-3">📄 Preview using data from: <strong>${sampleData.Email}</strong> (from your Excel file)</div>`
-      : `<div class="alert alert-warning mb-3">⚠️ Preview using sample data. Upload an Excel file to see real data preview.</div>`;
+  // Update navbar active state
+  document.querySelectorAll(".nav-link").forEach((link) => {
+    link.classList.remove("active");
+  });
 
-  document.getElementById("previewContent").innerHTML =
-    previewInfo + previewContent;
+  // Find and activate the clicked link
+  const clickedLink = document.querySelector(
+    `.nav-link[onclick*="${tabName}"]`
+  );
+  if (clickedLink) {
+    clickedLink.classList.add("active");
+  }
 
-  const modal = new bootstrap.Modal(document.getElementById("previewModal"));
-  modal.show();
+  // Refresh report if switching to report tab
+  if (tabName === "report") {
+    refreshReport();
+  }
+
+  // Load configurations if switching to configs tab
+  if (tabName === "configs") {
+    displayConfigsManagement();
+  }
 }
 
 function showAlert(type, message) {
-  // Remove existing alerts
-  const existingAlerts = document.querySelectorAll(".alert.auto-dismiss");
-  existingAlerts.forEach((alert) => alert.remove());
-
-  // Create new alert
+  // Create alert element
   const alert = document.createElement("div");
-  alert.className = `alert alert-${type} alert-dismissible fade show auto-dismiss`;
+  alert.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+  alert.style.cssText =
+    "top: 20px; right: 20px; z-index: 9999; min-width: 300px;";
   alert.innerHTML = `
-        ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    `;
+    ${message}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  `;
 
-  // Insert at the top of the container
-  const container = document.querySelector(".container-fluid");
-  container.insertBefore(alert, container.children[1]);
+  document.body.appendChild(alert);
 
-  // Auto-dismiss after 5 seconds
+  // Auto remove after 5 seconds
   setTimeout(() => {
     if (alert.parentNode) {
       alert.remove();
