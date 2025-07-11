@@ -1,7 +1,10 @@
+// src/routes/config.ts - UPDATED FOR USER MANAGEMENT
 import { Hono } from "hono";
+import { userDatabase, UserSMTPConfig } from "../services/userDatabase";
+import { requireAuth } from "../middleware/auth";
 import type { SMTPDefaults } from "../types";
 
-// Environment config (always available)
+// Global environment config (fallback for admin or demo mode)
 const envConfig: SMTPDefaults = {
   host: process.env.SMTP_HOST || "",
   port: process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT) : 587,
@@ -12,12 +15,6 @@ const envConfig: SMTPDefaults = {
   fromName: process.env.FROM_NAME || "",
 };
 
-// Custom config (user overrides)
-let customConfig: SMTPDefaults = { ...envConfig };
-
-// Current mode: 'env' or 'custom'
-let currentMode: "env" | "custom" = "env";
-
 const hasEnvConfig = !!(
   process.env.SMTP_HOST &&
   process.env.SMTP_USER &&
@@ -26,108 +23,158 @@ const hasEnvConfig = !!(
 
 const app = new Hono();
 
-// GET current config
+// GET user's SMTP configurations
 app.get("/config/smtp", (c) => {
-  const activeConfig = currentMode === "env" ? envConfig : customConfig;
+  const user = requireAuth(c);
+
+  // Get all user configurations
+  const userConfigs = userDatabase.getUserSMTPConfigs(user.id);
+  const defaultConfig = userDatabase.getUserDefaultSMTPConfig(user.id);
+
+  // Convert UserSMTPConfig to SMTPDefaults format for compatibility
+  const activeConfig = defaultConfig
+    ? {
+        host: defaultConfig.host,
+        port: defaultConfig.port,
+        secure: !!defaultConfig.secure,
+        user: defaultConfig.user,
+        pass: defaultConfig.pass,
+        fromEmail: defaultConfig.from_email,
+        fromName: defaultConfig.from_name,
+      }
+    : hasEnvConfig
+    ? envConfig
+    : null;
 
   return c.json({
     success: true,
     data: activeConfig,
-    hasConfig: !!(activeConfig.host && activeConfig.user && activeConfig.pass),
+    hasConfig: !!activeConfig,
     hasEnvConfig,
-    currentMode,
+    currentMode: defaultConfig ? "user" : "env",
     envConfig: hasEnvConfig ? envConfig : null,
-    customConfig,
+    userConfigs: userConfigs.map((config) => ({
+      id: config.id,
+      name: config.name,
+      host: config.host,
+      port: config.port,
+      secure: !!config.secure,
+      user: config.user,
+      fromEmail: config.from_email,
+      fromName: config.from_name,
+      isDefault: !!config.is_default,
+      createdAt: config.created_at,
+    })),
+    userId: user.id,
+    userName: user.name,
   });
 });
 
-// POST - Toggle between env and custom mode
-app.post("/config/smtp/mode", async (c) => {
+// POST - Create new SMTP configuration for user
+app.post("/config/smtp", async (c) => {
   try {
+    const user = requireAuth(c);
     const body = await c.req.json();
-    const newMode = body.mode;
 
-    if (newMode === "env" && !hasEnvConfig) {
+    const configData = {
+      name: body.name || "Default Configuration",
+      host: body.host,
+      port: body.port || 587,
+      secure: !!body.secure,
+      user: body.user,
+      pass: body.pass,
+      from_email: body.fromEmail,
+      from_name: body.fromName || "",
+      is_default: !!body.isDefault,
+    };
+
+    // Validate required fields
+    if (
+      !configData.host ||
+      !configData.user ||
+      !configData.pass ||
+      !configData.from_email
+    ) {
       return c.json(
         {
           success: false,
           message:
-            "❌ Cannot switch to .env mode - no environment configuration found",
+            "Missing required fields: host, user, password, and from_email are required",
         },
         400
       );
     }
 
-    if (newMode !== "env" && newMode !== "custom") {
-      return c.json(
-        {
-          success: false,
-          message: "❌ Invalid mode. Use 'env' or 'custom'",
-        },
-        400
-      );
-    }
+    const configId = await userDatabase.createSMTPConfig(user.id, configData);
 
-    currentMode = newMode;
-    const activeConfig = currentMode === "env" ? envConfig : customConfig;
-
-    console.log(`🔄 SMTP mode switched to: ${currentMode}`);
+    console.log(
+      `📧 SMTP config created for user ${user.email}: ${configData.name}`
+    );
 
     return c.json({
       success: true,
-      message: `✅ Switched to ${
-        currentMode === "env" ? ".env" : "custom"
-      } configuration`,
-      currentMode,
-      data: activeConfig,
+      data: { ...configData, id: configId },
+      message: "✅ SMTP configuration saved successfully",
+      configId,
     });
   } catch (error) {
+    console.error("Error creating SMTP config:", error);
     return c.json(
       {
         success: false,
-        message: "❌ Failed to switch configuration mode",
+        message: "❌ Failed to save SMTP configuration",
       },
       500
     );
   }
 });
 
-// POST - Update custom config (only works in custom mode)
-app.post("/config/smtp", async (c) => {
+// PUT - Update existing SMTP configuration
+app.put("/config/smtp/:configId", async (c) => {
   try {
-    if (currentMode === "env") {
+    const user = requireAuth(c);
+    const configId = c.req.param("configId");
+    const body = await c.req.json();
+
+    const updates = {
+      name: body.name,
+      host: body.host,
+      port: body.port,
+      secure: body.secure,
+      user: body.user,
+      pass: body.pass,
+      from_email: body.fromEmail,
+      from_name: body.fromName,
+      is_default: body.isDefault,
+    };
+
+    // Remove undefined values
+    Object.keys(updates).forEach((key) => {
+      if (updates[key as keyof typeof updates] === undefined) {
+        delete updates[key as keyof typeof updates];
+      }
+    });
+
+    const updated = userDatabase.updateSMTPConfig(configId, user.id, updates);
+
+    if (!updated) {
       return c.json(
         {
           success: false,
-          message:
-            "❌ Cannot update config in .env mode. Switch to 'Custom Settings' first.",
-          currentMode: "env",
+          message: "Configuration not found or no changes made",
         },
-        403
+        404
       );
     }
 
-    const body = await c.req.json();
-
-    customConfig = {
-      host: body.host || customConfig.host,
-      port: body.port || customConfig.port,
-      secure: body.secure !== undefined ? body.secure : customConfig.secure,
-      user: body.user || customConfig.user,
-      pass: body.pass || customConfig.pass,
-      fromEmail: body.fromEmail || customConfig.fromEmail,
-      fromName: body.fromName || customConfig.fromName,
-    };
-
-    console.log("💾 Custom SMTP config updated");
+    console.log(`📧 SMTP config updated for user ${user.email}: ${configId}`);
 
     return c.json({
       success: true,
-      data: customConfig,
-      message: "✅ Custom SMTP configuration updated",
-      currentMode: "custom",
+      message: "✅ SMTP configuration updated successfully",
     });
   } catch (error) {
+    console.error("Error updating SMTP config:", error);
     return c.json(
       {
         success: false,
@@ -138,15 +185,143 @@ app.post("/config/smtp", async (c) => {
   }
 });
 
-// GET active config for sending emails
+// DELETE - Delete SMTP configuration
+app.delete("/config/smtp/:configId", async (c) => {
+  try {
+    const user = requireAuth(c);
+    const configId = c.req.param("configId");
+
+    const deleted = userDatabase.deleteSMTPConfig(configId, user.id);
+
+    if (!deleted) {
+      return c.json(
+        {
+          success: false,
+          message: "Configuration not found",
+        },
+        404
+      );
+    }
+
+    console.log(`🗑️ SMTP config deleted for user ${user.email}: ${configId}`);
+
+    return c.json({
+      success: true,
+      message: "✅ SMTP configuration deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting SMTP config:", error);
+    return c.json(
+      {
+        success: false,
+        message: "❌ Failed to delete SMTP configuration",
+      },
+      500
+    );
+  }
+});
+
+// POST - Set default configuration
+app.post("/config/smtp/:configId/default", async (c) => {
+  try {
+    const user = requireAuth(c);
+    const configId = c.req.param("configId");
+
+    const updated = userDatabase.updateSMTPConfig(configId, user.id, {
+      is_default: true,
+    });
+
+    if (!updated) {
+      return c.json(
+        {
+          success: false,
+          message: "Configuration not found",
+        },
+        404
+      );
+    }
+
+    return c.json({
+      success: true,
+      message: "✅ Default configuration updated",
+    });
+  } catch (error) {
+    console.error("Error setting default config:", error);
+    return c.json(
+      {
+        success: false,
+        message: "❌ Failed to set default configuration",
+      },
+      500
+    );
+  }
+});
+
+// GET active config for sending emails (backward compatibility)
 app.get("/config/smtp/active", (c) => {
-  const activeConfig = currentMode === "env" ? envConfig : customConfig;
+  const user = requireAuth(c);
+
+  const defaultConfig = userDatabase.getUserDefaultSMTPConfig(user.id);
+  const activeConfig = defaultConfig
+    ? {
+        host: defaultConfig.host,
+        port: defaultConfig.port,
+        secure: !!defaultConfig.secure,
+        user: defaultConfig.user,
+        pass: defaultConfig.pass,
+        fromEmail: defaultConfig.from_email,
+        fromName: defaultConfig.from_name,
+      }
+    : hasEnvConfig
+    ? envConfig
+    : null;
 
   return c.json({
     success: true,
     data: activeConfig,
-    mode: currentMode,
+    mode: defaultConfig ? "user" : "env",
+    configId: defaultConfig?.id,
+    configName: defaultConfig?.name,
   });
+});
+
+// GET - Test SMTP connection
+app.post("/config/smtp/test", async (c) => {
+  try {
+    const user = requireAuth(c);
+    const body = await c.req.json();
+
+    // Import email service for testing
+    const { emailService } = await import("../services/emailService");
+
+    const testConfig = {
+      host: body.host,
+      port: body.port || 587,
+      secure: !!body.secure,
+      auth: {
+        user: body.user,
+        pass: body.pass,
+      },
+    };
+
+    const isValid = await emailService.testConnection(testConfig);
+
+    return c.json({
+      success: isValid,
+      message: isValid
+        ? "✅ SMTP connection successful"
+        : "❌ SMTP connection failed",
+    });
+  } catch (error) {
+    console.error("SMTP test error:", error);
+    return c.json(
+      {
+        success: false,
+        message: "❌ SMTP connection test failed",
+      },
+      500
+    );
+  }
 });
 
 export default app;

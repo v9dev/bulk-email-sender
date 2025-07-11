@@ -1,9 +1,10 @@
+<!-- public/index.html - COMPLETE VERSION WITH USER MANAGEMENT + ALL EXISTING FEATURES -->
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Bulk Email Sender</title>
+    <title>Bulk Email Sender - Dashboard</title>
     <link
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
       rel="stylesheet"
@@ -17,6 +18,88 @@
       href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css"
     />
     <style>
+      body {
+        background-color: #f8f9fa;
+      }
+
+      .tab-content {
+        min-height: 600px;
+      }
+
+      .card {
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        border: 1px solid rgba(0, 0, 0, 0.125);
+      }
+
+      .card-header {
+        background-color: #f8f9fa;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+      }
+
+      .alert {
+        border-radius: 0.375rem;
+      }
+
+      .table th {
+        background-color: #f8f9fa;
+        border-top: none;
+      }
+
+      .spinner-border-sm {
+        width: 1rem;
+        height: 1rem;
+      }
+
+      .status-sent {
+        color: #198754;
+        font-weight: bold;
+      }
+
+      .status-failed {
+        color: #dc3545;
+        font-weight: bold;
+      }
+
+      .status-error {
+        color: #fd7e14;
+        font-weight: bold;
+      }
+
+      .stat-card {
+        border-left: 4px solid #007bff;
+        padding-left: 1rem;
+      }
+
+      .stat-card.success {
+        border-left-color: #198754;
+      }
+
+      .stat-card.danger {
+        border-left-color: #dc3545;
+      }
+
+      .stat-card.warning {
+        border-left-color: #fd7e14;
+      }
+
+      .navbar-brand {
+        font-weight: bold;
+      }
+
+      #editor {
+        background-color: white;
+      }
+
+      .ql-toolbar {
+        border-top-left-radius: 0.375rem;
+        border-top-right-radius: 0.375rem;
+      }
+
+      .ql-container {
+        border-bottom-left-radius: 0.375rem;
+        border-bottom-right-radius: 0.375rem;
+      }
+
       .timeline {
         border-left: 3px solid #dee2e6;
         padding-left: 20px;
@@ -104,70 +187,107 @@
         border-left: 4px solid #ffc107;
       }
 
-      /* NEW: Toggle-specific styles */
-      .field-locked {
-        background-color: #f8f9fa !important;
-        border-color: #dee2e6 !important;
-        color: #6c757d !important;
-        cursor: not-allowed !important;
-      }
-
-      .field-locked:focus {
-        box-shadow: none !important;
-        border-color: #dee2e6 !important;
-      }
-
-      .lock-indicator {
-        color: #ffc107;
-        font-size: 1.1em;
-        margin-left: 5px;
-      }
-
-      .config-status-locked {
-        background: linear-gradient(45deg, #ffc107, #fd7e14);
-        color: white;
-        padding: 4px 8px;
-        border-radius: 12px;
-        font-weight: bold;
-        font-size: 0.8em;
-      }
-
-      .config-status-editable {
+      /* User Management Specific Styles */
+      .user-info {
         background: linear-gradient(45deg, #28a745, #20c997);
         color: white;
-        padding: 4px 8px;
-        border-radius: 12px;
-        font-weight: bold;
-        font-size: 0.8em;
+        padding: 8px 15px;
+        border-radius: 20px;
+        font-size: 0.9rem;
+        font-weight: 500;
       }
 
-      .mode-toggle-container {
+      .config-selector {
+        background: #f8f9fa;
         border: 1px solid #dee2e6;
         border-radius: 8px;
         padding: 15px;
-        background: #f8f9fa;
         margin-bottom: 15px;
       }
 
-      .mode-indicator {
-        font-weight: bold;
-        padding: 8px 12px;
+      .config-item {
+        border: 1px solid #dee2e6;
         border-radius: 6px;
-        display: inline-block;
+        padding: 10px;
         margin-bottom: 10px;
+        background: white;
+        transition: all 0.2s;
+        cursor: pointer;
+      }
+
+      .config-item:hover {
+        border-color: #007bff;
+        box-shadow: 0 2px 4px rgba(0, 123, 255, 0.1);
+      }
+
+      .config-item.active {
+        border-color: #007bff;
+        background: #f8f9ff;
+      }
+
+      .config-badge {
+        background: #28a745;
+        color: white;
+        padding: 2px 6px;
+        border-radius: 10px;
+        font-size: 0.7rem;
+        font-weight: bold;
       }
     </style>
   </head>
   <body>
     <div class="container-fluid">
+      <!-- Updated Navbar with User Info -->
       <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
         <div class="container">
           <a class="navbar-brand" href="/">📧 Bulk Email Sender</a>
-          <div class="navbar-nav ms-auto">
+          <div class="navbar-nav ms-auto d-flex align-items-center">
             <a class="nav-link" href="#" onclick="showTab('compose')"
               >Compose</a
             >
             <a class="nav-link" href="#" onclick="showTab('report')">Reports</a>
+            <a class="nav-link" href="#" onclick="showTab('configs')"
+              >My Configs</a
+            >
+
+            <!-- User Info Dropdown -->
+            <div class="dropdown ms-3">
+              <button
+                class="btn user-info dropdown-toggle"
+                type="button"
+                data-bs-toggle="dropdown"
+              >
+                <i class="bi bi-person-circle me-2"></i>
+                <span id="userName">Loading...</span>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li>
+                  <h6 class="dropdown-header" id="userEmail">
+                    user@example.com
+                  </h6>
+                </li>
+                <li><hr class="dropdown-divider" /></li>
+                <li>
+                  <a
+                    class="dropdown-item"
+                    href="#"
+                    onclick="showTab('configs')"
+                  >
+                    <i class="bi bi-gear me-2"></i>SMTP Configurations
+                  </a>
+                </li>
+                <li><hr class="dropdown-divider" /></li>
+                <li>
+                  <a
+                    class="dropdown-item text-danger"
+                    href="#"
+                    onclick="logout()"
+                  >
+                    <i class="bi bi-box-arrow-right me-2"></i>Logout
+                  </a>
+                </li>
+              </ul>
+            </div>
           </div>
         </div>
       </nav>
@@ -226,140 +346,194 @@
                 </small>
               </div>
               <div class="card-body">
-                <!-- NEW: Mode Toggle Section -->
-                <div class="mode-toggle-container">
+                <!-- SMTP Configuration Selector -->
+                <div class="config-selector">
                   <div
-                    class="d-flex justify-content-between align-items-center"
+                    class="d-flex justify-content-between align-items-center mb-3"
                   >
                     <div>
-                      <div id="modeIndicator" class="mode-indicator">
-                        🔒 Using .env Configuration
-                      </div>
+                      <h6 class="mb-1">Select Configuration</h6>
                       <small class="text-muted"
-                        >Choose your configuration source</small
+                        >Choose an SMTP configuration for sending emails</small
                       >
                     </div>
                     <button
-                      id="modeToggleButton"
-                      class="btn btn-outline-warning btn-sm"
-                      onclick="toggleSMTPMode()"
+                      class="btn btn-outline-primary btn-sm"
+                      onclick="showNewConfigForm()"
                     >
-                      ⚙️ Use Custom Settings
+                      <i class="bi bi-plus-circle me-1"></i>Add New
                     </button>
+                  </div>
+
+                  <div id="configList">
+                    <div class="text-muted text-center py-3">
+                      <div class="spinner-border spinner-border-sm me-2"></div>
+                      Loading configurations...
+                    </div>
                   </div>
                 </div>
 
-                <form id="emailForm">
-                  <div class="row">
-                    <div class="col-md-8">
-                      <label class="form-label">
-                        SMTP Host *
-                        <small class="text-success d-none" id="hostFromEnv"
-                          >📋 From .env</small
-                        >
-                      </label>
-                      <input
-                        type="text"
-                        class="form-control"
-                        name="smtpHost"
-                        placeholder="smtp.gmail.com"
-                        required
-                      />
+                <!-- New Configuration Form (hidden by default) -->
+                <div id="newConfigForm" class="d-none">
+                  <div class="card border-primary">
+                    <div
+                      class="card-header bg-primary text-white d-flex justify-content-between align-items-center"
+                    >
+                      <h6 class="mb-0">New SMTP Configuration</h6>
+                      <button
+                        class="btn btn-sm btn-outline-light"
+                        onclick="hideNewConfigForm()"
+                      >
+                        <i class="bi bi-x"></i>
+                      </button>
                     </div>
-                    <div class="col-md-4">
-                      <label class="form-label">Port *</label>
-                      <input
-                        type="number"
-                        class="form-control"
-                        name="smtpPort"
-                        value="587"
-                        required
-                      />
+                    <div class="card-body">
+                      <form id="newConfigFormElement">
+                        <div class="mb-3">
+                          <label class="form-label">Configuration Name *</label>
+                          <input
+                            type="text"
+                            class="form-control"
+                            name="configName"
+                            placeholder="e.g., My Gmail, Work Email"
+                            required
+                          />
+                          <small class="text-muted"
+                            >Give this configuration a memorable name</small
+                          >
+                        </div>
+
+                        <div class="row">
+                          <div class="col-md-8">
+                            <label class="form-label">SMTP Host *</label>
+                            <input
+                              type="text"
+                              class="form-control"
+                              name="smtpHost"
+                              placeholder="smtp.gmail.com"
+                              required
+                            />
+                          </div>
+                          <div class="col-md-4">
+                            <label class="form-label">Port *</label>
+                            <input
+                              type="number"
+                              class="form-control"
+                              name="smtpPort"
+                              value="587"
+                              required
+                            />
+                          </div>
+                        </div>
+
+                        <div class="mb-3 mt-3">
+                          <div class="form-check">
+                            <input
+                              class="form-check-input"
+                              type="checkbox"
+                              name="smtpSecure"
+                              id="smtpSecure"
+                            />
+                            <label class="form-check-label" for="smtpSecure"
+                              >Use TLS/SSL</label
+                            >
+                          </div>
+                        </div>
+
+                        <div class="mb-3">
+                          <label class="form-label">Username *</label>
+                          <input
+                            type="text"
+                            class="form-control"
+                            name="smtpUser"
+                            required
+                          />
+                        </div>
+
+                        <div class="mb-3">
+                          <label class="form-label">Password *</label>
+                          <input
+                            type="password"
+                            class="form-control"
+                            name="smtpPass"
+                            required
+                          />
+                        </div>
+
+                        <div class="mb-3">
+                          <label class="form-label">From Email *</label>
+                          <input
+                            type="email"
+                            class="form-control"
+                            name="fromEmail"
+                            required
+                          />
+                        </div>
+
+                        <div class="mb-3">
+                          <label class="form-label">From Name</label>
+                          <input
+                            type="text"
+                            class="form-control"
+                            name="fromName"
+                            placeholder="Your Name"
+                          />
+                        </div>
+
+                        <div class="mb-3">
+                          <div class="form-check">
+                            <input
+                              class="form-check-input"
+                              type="checkbox"
+                              name="isDefault"
+                              id="isDefault"
+                            />
+                            <label class="form-check-label" for="isDefault">
+                              Set as default configuration
+                            </label>
+                          </div>
+                        </div>
+
+                        <div class="d-flex gap-2">
+                          <button
+                            type="button"
+                            class="btn btn-primary"
+                            onclick="saveNewConfig()"
+                          >
+                            <i class="bi bi-save me-1"></i>Save Configuration
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-outline-secondary"
+                            onclick="testNewConfig()"
+                          >
+                            <i class="bi bi-wifi me-1"></i>Test Connection
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-outline-secondary"
+                            onclick="hideNewConfigForm()"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
                     </div>
                   </div>
-                  <div class="mb-3 mt-3">
-                    <div class="form-check">
-                      <input
-                        class="form-check-input"
-                        type="checkbox"
-                        name="smtpSecure"
-                        id="smtpSecure"
-                      />
-                      <label class="form-check-label" for="smtpSecure"
-                        >Use TLS/SSL</label
-                      >
-                    </div>
-                  </div>
-                  <div class="mb-3">
-                    <label class="form-label">
-                      Username *
-                      <small class="text-success d-none" id="userFromEnv"
-                        >📋 From .env</small
-                      >
-                    </label>
-                    <input
-                      type="text"
-                      class="form-control"
-                      name="smtpUser"
-                      required
-                    />
-                  </div>
-                  <div class="mb-3">
-                    <label class="form-label">
-                      Password *
-                      <small class="text-success d-none" id="passFromEnv"
-                        >📋 From .env</small
-                      >
-                    </label>
-                    <input
-                      type="password"
-                      class="form-control"
-                      name="smtpPass"
-                      required
-                    />
-                  </div>
+                </div>
 
-                  <hr />
-
-                  <div class="mb-3">
-                    <label class="form-label">
-                      From Email *
-                      <small class="text-success d-none" id="fromEmailFromEnv"
-                        >📋 From .env</small
-                      >
-                    </label>
-                    <input
-                      type="email"
-                      class="form-control"
-                      name="fromEmail"
-                      required
-                    />
+                <!-- Current selected config display -->
+                <div id="selectedConfigDisplay" class="d-none">
+                  <div class="alert alert-success">
+                    <strong>✅ Active Configuration:</strong><br />
+                    <span id="selectedConfigInfo"></span>
                   </div>
-                  <div class="mb-3">
-                    <label class="form-label">
-                      From Name
-                      <small class="text-success d-none" id="fromNameFromEnv"
-                        >📋 From .env</small
-                      >
-                    </label>
-                    <input
-                      type="text"
-                      class="form-control"
-                      name="fromName"
-                      placeholder="Your Name"
-                    />
-                  </div>
-
-                  <div class="alert alert-info d-none" id="envConfigAlert">
-                    <strong>📋 Environment Configuration Active</strong><br />
-                    <small>SMTP settings are loaded from your .env file.</small>
-                  </div>
-                </form>
+                </div>
               </div>
             </div>
           </div>
 
-          <!-- Keep all existing sections unchanged -->
+          <!-- File Uploads Section -->
           <div class="col-md-6">
             <div class="card">
               <div class="card-header">
@@ -601,7 +775,7 @@
           </div>
         </div>
 
-        <!-- Keep all other existing sections (Email Content, etc.) -->
+        <!-- Email Content Section -->
         <div class="row mt-4">
           <div class="col-12">
             <div class="card">
@@ -674,7 +848,38 @@
         </div>
       </div>
 
-      <!-- Report Tab (keep all existing content) -->
+      <!-- Configurations Management Tab -->
+      <div id="configs-tab" class="tab-content d-none">
+        <div class="row">
+          <div class="col-12">
+            <div class="card">
+              <div
+                class="card-header d-flex justify-content-between align-items-center"
+              >
+                <h5>⚙️ My SMTP Configurations</h5>
+                <button
+                  class="btn btn-primary"
+                  onclick="showNewConfigForm(); showTab('compose')"
+                >
+                  <i class="bi bi-plus-circle me-2"></i>Add New Configuration
+                </button>
+              </div>
+              <div class="card-body">
+                <div id="configsManagement">
+                  <div class="text-center py-4">
+                    <div class="spinner-border" role="status"></div>
+                    <p class="mt-2 text-muted">
+                      Loading your configurations...
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Report Tab -->
       <div id="report-tab" class="tab-content d-none">
         <div class="row">
           <div class="col-12">
