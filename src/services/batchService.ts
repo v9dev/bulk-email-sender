@@ -1,3 +1,4 @@
+// src/services/batchService.ts - COMPLETE FIX WITH NOTIFICATION SUPPORT
 import { emailService } from "./emailService";
 import { logService } from "./logService";
 import { FileService } from "./fileService";
@@ -16,9 +17,15 @@ class BatchService {
   private totalJobs = 0;
   private completedJobs = 0;
 
+  // UPDATED: Accept notification settings parameter
   async startBatchJob(
     emailJob: EmailJob,
-    batchConfig: BatchConfig
+    batchConfig: BatchConfig,
+    notificationSettings?: { 
+      email: string; 
+      userId: string; 
+      configName?: string; 
+    }
   ): Promise<string> {
     if (this.isRunning) {
       throw new Error("A batch job is already running");
@@ -29,7 +36,7 @@ class BatchService {
       emailJob.contacts.length / batchConfig.batchSize
     );
 
-    // Create batch job
+    // Create batch job with notification settings
     this.currentJob = {
       id: jobId,
       totalContacts: emailJob.contacts.length,
@@ -41,12 +48,15 @@ class BatchService {
       startTime: new Date().toISOString(),
       config: batchConfig,
       emailJob,
+      notificationSettings,                    // NEW
+      userId: notificationSettings?.userId,    // NEW  
+      configName: notificationSettings?.configName // NEW
     };
 
     this.isRunning = true;
     this.totalJobs++;
 
-    console.log(`🚀 Starting batch job ${jobId}:`);
+    console.log(`🚀 Starting batch job ${jobId} for user ${notificationSettings?.userId || 'unknown'}:`);
     console.log(
       `   📊 ${emailJob.contacts.length} contacts → ${totalBatches} batches of ${batchConfig.batchSize}`
     );
@@ -256,6 +266,7 @@ class BatchService {
     }, delayMs);
   }
 
+  // UPDATED: Include notification support
   private async completeBatchJob(): Promise<void> {
     if (this.currentJob) {
       this.currentJob.status = "Completed";
@@ -268,6 +279,11 @@ class BatchService {
         `📊 Results: ${this.currentJob.emailsSent} sent, ${this.currentJob.emailsFailed} failed`
       );
 
+      // NEW: Send completion notification if requested
+      if (this.currentJob.notificationSettings?.email) {
+        await this.sendBatchCompletionNotification();
+      }
+
       // Clean up
       if (this.timeoutId) {
         clearTimeout(this.timeoutId);
@@ -278,6 +294,49 @@ class BatchService {
       setTimeout(() => {
         this.currentJob = null;
       }, 30000); // Keep job info for 30 seconds
+    }
+  }
+
+  // NEW: Send batch completion notification
+  private async sendBatchCompletionNotification(): Promise<void> {
+    if (!this.currentJob?.notificationSettings?.email) return;
+    
+    try {
+      const { notificationService } = await import('./notificationService');
+      
+      const jobStats = {
+        sent: this.currentJob.emailsSent,
+        failed: this.currentJob.emailsFailed,
+        total: this.currentJob.totalContacts,
+        errors: 0
+      };
+
+      const jobDetails = {
+        id: this.currentJob.id,
+        subject: this.currentJob.emailJob.subject,
+        startTime: this.currentJob.startTime,
+        endTime: new Date().toISOString(),
+        configUsed: this.currentJob.configName || 'Batch Configuration',
+        batchMode: true
+      };
+
+      console.log(`📧 Sending batch completion notification to ${this.currentJob.notificationSettings.email} for user ${this.currentJob.userId}`);
+
+      const success = await notificationService.sendJobCompletionNotification(
+        this.currentJob.userId!,
+        this.currentJob.notificationSettings.email,
+        jobStats,
+        jobDetails,
+        jobDetails.configUsed
+      );
+      
+      if (success) {
+        console.log('✅ Batch completion notification sent successfully');
+      } else {
+        console.error('❌ Failed to send batch completion notification');
+      }
+    } catch (error) {
+      console.error('❌ Failed to send batch completion notification:', error);
     }
   }
 }

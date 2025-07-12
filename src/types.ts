@@ -1,3 +1,4 @@
+// src/types.ts - COMPLETE FIX WITH NOTIFICATION SUPPORT
 export interface Contact {
   Email: string;
   FirstName?: string;
@@ -49,7 +50,6 @@ export interface SMTPDefaults {
   fromName?: string;
 }
 
-// ADD THESE NEW INTERFACES:
 export interface BatchConfig {
   batchSize: number;
   emailDelay: number;
@@ -57,6 +57,7 @@ export interface BatchConfig {
   enabled: boolean;
 }
 
+// UPDATED: BatchJob interface with notification support
 export interface BatchJob {
   id: string;
   totalContacts: number;
@@ -69,6 +70,14 @@ export interface BatchJob {
   config: BatchConfig;
   emailJob: EmailJob;
   nextBatchTime?: string;
+  // NEW PROPERTIES:
+  notificationSettings?: {
+    email: string;
+    userId: string;
+    configName?: string;
+  };
+  userId?: string;
+  configName?: string;
 }
 
 export interface BatchStatus {
@@ -80,6 +89,7 @@ export interface BatchStatus {
 
 export interface ScheduledJob {
   id: string;
+  userId: string;  // NEW: Added user ID
   emailJob: EmailJob;
   batchConfig?: BatchConfig;
   scheduledTime: string;
@@ -92,11 +102,14 @@ export interface ScheduledJob {
   contactCount: number;
   subject: string;
   useBatch: boolean;
+  configName?: string;  // NEW: Added config name
 }
 
 export interface NotificationSettings {
   email?: string;
   browser?: boolean;
+  userId?: string;
+  configName?: string;
 }
 
 export interface NotificationConfig {
