@@ -16,6 +16,7 @@ import authRoutes from "./routes/auth";
 import sendRoutes from "./routes/send";
 import reportRoutes from "./routes/report";
 import configRoutes from "./routes/config";
+import dashboardRoutes from "./routes/dashboard";
 
 // Load environment variables
 config();
@@ -93,6 +94,7 @@ app.route("/", indexRoutes); // Dashboard and main interface
 app.route("/", sendRoutes); // Email sending functionality
 app.route("/", reportRoutes); // Reports and analytics
 app.route("/", configRoutes); // User SMTP configurations
+app.route("/", dashboardRoutes);
 
 // Health check
 app.get("/health", (c) => {

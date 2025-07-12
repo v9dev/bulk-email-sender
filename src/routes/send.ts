@@ -33,7 +33,7 @@ if (process.env.NOTIFICATION_SMTP_USER) {
       process.env.NOTIFICATION_FROM_NAME || "Email Campaign Notifications",
   };
 
-  notificationService.setupNotificationSender(notificationConfig);
+  notificationService.setupGlobalNotificationSender(notificationConfig);
   console.log("📧 Notification service configured");
 }
 
@@ -102,6 +102,15 @@ app.post("/send", async (c) => {
 
     const excelFile = formData.get("excelFile") as File;
     const htmlTemplateFile = formData.get("htmlTemplate") as File;
+
+    // Create notification settings object
+    const notificationSettings = notifyEmail
+      ? {
+          email: notifyEmail,
+          userId: user.id,
+          configName: userConfig.name,
+        }
+      : undefined;
 
     console.log("📋 Email job data:", {
       configName: userConfig.name,
@@ -387,7 +396,11 @@ Current settings: ${smtpHost}:${smtpPort} (SSL: ${smtpSecure})`;
         console.log(
           `⚡ Starting BATCH email job: ${contacts.length} contacts in batches of ${batchSize}`
         );
-        const jobId = await batchService.startBatchJob(emailJob, batchConfig!);
+        const jobId = await batchService.startBatchJob(
+          emailJob,
+          batchConfig!,
+          notificationSettings // NEW parameter
+        );
 
         return c.json({
           success: true,
@@ -404,9 +417,11 @@ Current settings: ${smtpHost}:${smtpPort} (SSL: ${smtpSecure})`;
           `🚀 Starting normal bulk email job: ${contacts.length} contacts`
         );
         emailService.createTransport(emailConfig);
-        emailService.sendBulkEmails(emailJob).catch((error) => {
-          console.error("Bulk email sending failed:", error);
-        });
+        emailService
+          .sendBulkEmails(emailJob, notificationSettings)
+          .catch((error) => {
+            console.error("Bulk email sending failed:", error);
+          });
 
         return c.json({
           success: true,
@@ -425,6 +440,39 @@ Current settings: ${smtpHost}:${smtpPort} (SSL: ${smtpSecure})`;
         success: false,
         message: `Server error: ${message}`,
       },
+      500
+    );
+  }
+});
+
+app.post("/test-notification", async (c) => {
+  try {
+    const user = requireAuth(c);
+    const body = await c.req.json();
+    const { testEmail } = body;
+
+    if (!testEmail) {
+      return c.json({ success: false, message: "Test email required" }, 400);
+    }
+
+    const { notificationService } = await import(
+      "../services/notificationService"
+    );
+    const success = await notificationService.sendTestNotification(
+      user.id,
+      testEmail
+    );
+
+    return c.json({
+      success,
+      message: success
+        ? "✅ Test notification sent successfully"
+        : "❌ Failed to send test notification",
+    });
+  } catch (error) {
+    console.error("Test notification error:", error);
+    return c.json(
+      { success: false, message: "Failed to send test notification" },
       500
     );
   }

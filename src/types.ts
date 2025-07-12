@@ -64,7 +64,7 @@ export interface BatchJob {
   totalBatches: number;
   emailsSent: number;
   emailsFailed: number;
-  status: 'Running' | 'Paused' | 'Completed' | 'Failed';
+  status: "Running" | "Paused" | "Completed" | "Failed";
   startTime: string;
   config: BatchConfig;
   emailJob: EmailJob;
@@ -76,6 +76,9 @@ export interface BatchStatus {
   currentJob: BatchJob | null;
   totalJobs: number;
   completedJobs: number;
+  notificationSettings?: NotificationSettings;
+  userId?: string;
+  configName?: string;
 }
 
 export interface ScheduledJob {
@@ -85,7 +88,7 @@ export interface ScheduledJob {
   scheduledTime: string;
   notifyEmail?: string;
   notifyBrowser?: boolean;
-  status: 'scheduled' | 'running' | 'completed' | 'failed' | 'cancelled';
+  status: "scheduled" | "running" | "completed" | "failed" | "cancelled";
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
@@ -97,6 +100,8 @@ export interface ScheduledJob {
 export interface NotificationSettings {
   email?: string;
   browser?: boolean;
+  userId?: string;
+  configName?: string;
 }
 
 export interface NotificationConfig {

@@ -256,6 +256,31 @@ class BatchService {
     }, delayMs);
   }
 
+  // private async completeBatchJob(): Promise<void> {
+  //   if (this.currentJob) {
+  //     this.currentJob.status = "Completed";
+  //     this.currentJob.nextBatchTime = undefined;
+  //     this.isRunning = false;
+  //     this.completedJobs++;
+
+  //     console.log(`🎉 Batch job ${this.currentJob.id} completed!`);
+  //     console.log(
+  //       `📊 Results: ${this.currentJob.emailsSent} sent, ${this.currentJob.emailsFailed} failed`
+  //     );
+
+  //     // Clean up
+  //     if (this.timeoutId) {
+  //       clearTimeout(this.timeoutId);
+  //       this.timeoutId = null;
+  //     }
+
+  //     // Clear current job after a delay
+  //     setTimeout(() => {
+  //       this.currentJob = null;
+  //     }, 30000); // Keep job info for 30 seconds
+  //   }
+  // }
+
   private async completeBatchJob(): Promise<void> {
     if (this.currentJob) {
       this.currentJob.status = "Completed";
@@ -268,6 +293,11 @@ class BatchService {
         `📊 Results: ${this.currentJob.emailsSent} sent, ${this.currentJob.emailsFailed} failed`
       );
 
+      // NEW: Send completion notification if requested
+      if (this.currentJob.notificationSettings) {
+        await this.sendCompletionNotification(this.currentJob);
+      }
+
       // Clean up
       if (this.timeoutId) {
         clearTimeout(this.timeoutId);
@@ -278,6 +308,40 @@ class BatchService {
       setTimeout(() => {
         this.currentJob = null;
       }, 30000); // Keep job info for 30 seconds
+    }
+  }
+
+  private async sendCompletionNotification(job: BatchJob): Promise<void> {
+    try {
+      const { notificationService } = await import("./notificationService");
+
+      if (job.notificationSettings?.email) {
+        const jobStats = {
+          sent: job.emailsSent,
+          failed: job.emailsFailed,
+          total: job.totalContacts,
+          errors: 0,
+        };
+
+        const jobDetails = {
+          id: job.id,
+          subject: job.emailJob.subject,
+          startTime: job.startTime,
+          endTime: new Date().toISOString(),
+          configUsed: job.configName || "Default Configuration",
+          batchMode: true,
+        };
+
+        await notificationService.sendJobCompletionNotification(
+          job.userId,
+          job.notificationSettings.email,
+          jobStats,
+          jobDetails,
+          job.configName || "Batch Job"
+        );
+      }
+    } catch (error) {
+      console.error("❌ Failed to send batch completion notification:", error);
     }
   }
 }
