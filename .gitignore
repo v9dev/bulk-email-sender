@@ -40,3 +40,4 @@ uploads/*
 # data folder
 data/*
 !data/.gitkeep
+uploads/*
