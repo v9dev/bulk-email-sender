@@ -1,3 +1,4 @@
+// src/types.ts - COMPLETE FIX WITH NOTIFICATION SUPPORT
 export interface Contact {
   Email: string;
   FirstName?: string;
@@ -49,7 +50,6 @@ export interface SMTPDefaults {
   fromName?: string;
 }
 
-// ADD THESE NEW INTERFACES:
 export interface BatchConfig {
   batchSize: number;
   emailDelay: number;
@@ -57,6 +57,7 @@ export interface BatchConfig {
   enabled: boolean;
 }
 
+// UPDATED: BatchJob interface with notification support
 export interface BatchJob {
   id: string;
   totalContacts: number;
@@ -64,11 +65,19 @@ export interface BatchJob {
   totalBatches: number;
   emailsSent: number;
   emailsFailed: number;
-  status: "Running" | "Paused" | "Completed" | "Failed";
+  status: 'Running' | 'Paused' | 'Completed' | 'Failed';
   startTime: string;
   config: BatchConfig;
   emailJob: EmailJob;
   nextBatchTime?: string;
+  // NEW PROPERTIES:
+  notificationSettings?: {
+    email: string;
+    userId: string;
+    configName?: string;
+  };
+  userId?: string;
+  configName?: string;
 }
 
 export interface BatchStatus {
@@ -76,25 +85,24 @@ export interface BatchStatus {
   currentJob: BatchJob | null;
   totalJobs: number;
   completedJobs: number;
-  notificationSettings?: NotificationSettings;
-  userId?: string;
-  configName?: string;
 }
 
 export interface ScheduledJob {
   id: string;
+  userId: string;  // NEW: Added user ID
   emailJob: EmailJob;
   batchConfig?: BatchConfig;
   scheduledTime: string;
   notifyEmail?: string;
   notifyBrowser?: boolean;
-  status: "scheduled" | "running" | "completed" | "failed" | "cancelled";
+  status: 'scheduled' | 'running' | 'completed' | 'failed' | 'cancelled';
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
   contactCount: number;
   subject: string;
   useBatch: boolean;
+  configName?: string;  // NEW: Added config name
 }
 
 export interface NotificationSettings {

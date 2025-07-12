@@ -1,4 +1,4 @@
-// src/routes/send.ts - FIXED VERSION WITH BETTER ERROR HANDLING
+// src/routes/send.ts - COMPLETE FIX WITH USER ID SUPPORT
 import { Hono } from "hono";
 import { emailService } from "../services/emailService";
 import { batchService } from "../services/batchService";
@@ -103,15 +103,6 @@ app.post("/send", async (c) => {
     const excelFile = formData.get("excelFile") as File;
     const htmlTemplateFile = formData.get("htmlTemplate") as File;
 
-    // Create notification settings object
-    const notificationSettings = notifyEmail
-      ? {
-          email: notifyEmail,
-          userId: user.id,
-          configName: userConfig.name,
-        }
-      : undefined;
-
     console.log("📋 Email job data:", {
       configName: userConfig.name,
       smtpHost,
@@ -173,7 +164,7 @@ app.post("/send", async (c) => {
       }
     }
 
-    // Configure email service with proper Gmail settings
+    // Configure email service
     const emailConfig: EmailConfig = {
       host: smtpHost,
       port: smtpPort,
@@ -181,7 +172,7 @@ app.post("/send", async (c) => {
       auth: { user: smtpUser, pass: smtpPass },
     };
 
-    // Enhanced SMTP connection test with better error messages
+    // SMTP connection test
     console.log(
       `🔍 Testing SMTP connection to ${smtpHost}:${smtpPort} (secure: ${smtpSecure})...`
     );
@@ -189,7 +180,6 @@ app.post("/send", async (c) => {
     try {
       const connectionValid = await emailService.testConnection(emailConfig);
       if (!connectionValid) {
-        // Provide specific error messages for common issues
         let errorMessage =
           "SMTP connection failed. Please check your settings.";
 
@@ -209,18 +199,12 @@ app.post("/send", async (c) => {
           • Enable "Less secure app access" if needed`;
         }
 
-        return c.json(
-          {
-            success: false,
-            message: errorMessage,
-          },
-          400
-        );
+        return c.json({ success: false, message: errorMessage }, 400);
       }
     } catch (testError) {
       console.error("SMTP test error details:", testError);
-
       let specificError = "SMTP connection test failed.";
+      
       if (testError instanceof Error) {
         if (
           testError.message.includes("Invalid login") ||
@@ -228,14 +212,11 @@ app.post("/send", async (c) => {
         ) {
           if (smtpHost.includes("gmail")) {
             specificError = `❌ Gmail Authentication Failed:
-
 🔧 Quick Fix:
 1. Enable 2-Factor Authentication on your Google account
 2. Generate an App Password: https://myaccount.google.com/apppasswords
 3. Use the 16-character App Password (not your regular password)
-4. SMTP Settings: smtp.gmail.com:465 with SSL enabled
-
-Current settings: ${smtpHost}:${smtpPort} (SSL: ${smtpSecure})`;
+4. SMTP Settings: smtp.gmail.com:465 with SSL enabled`;
           } else {
             specificError = `❌ Authentication Failed: Invalid username or password for ${smtpHost}`;
           }
@@ -244,7 +225,6 @@ Current settings: ${smtpHost}:${smtpPort} (SSL: ${smtpSecure})`;
           testError.message.includes("ESOCKET")
         ) {
           specificError = `❌ Connection Failed: Cannot connect to ${smtpHost}:${smtpPort}
-
 🔧 Check these settings:
 • Gmail: smtp.gmail.com:465 (SSL) or smtp.gmail.com:587 (TLS)
 • Outlook: smtp-mail.outlook.com:587 (TLS)
@@ -254,13 +234,7 @@ Current settings: ${smtpHost}:${smtpPort} (SSL: ${smtpSecure})`;
         }
       }
 
-      return c.json(
-        {
-          success: false,
-          message: specificError,
-        },
-        400
-      );
+      return c.json({ success: false, message: specificError }, 400);
     }
 
     // Process Excel file
@@ -355,6 +329,13 @@ Current settings: ${smtpHost}:${smtpPort} (SSL: ${smtpSecure})`;
         }
       : null;
 
+    // Create notification settings
+    const notificationSettings = notifyEmail ? {
+      email: notifyEmail,
+      userId: user.id,
+      configName: userConfig.name
+    } : undefined;
+
     // Handle scheduling vs immediate sending
     if (scheduleEmail) {
       const scheduledDate = new Date(scheduledTime);
@@ -369,16 +350,18 @@ Current settings: ${smtpHost}:${smtpPort} (SSL: ${smtpSecure})`;
         );
       }
 
-      // Schedule the job
+      // UPDATED: Schedule the job with user ID and config name
       const jobId = await schedulerService.scheduleJob(
+        user.id,           // NEW: Pass user ID
         emailJob,
         batchConfig,
         scheduledDate,
+        userConfig.name,   // NEW: Pass config name
         notifyEmail,
         notifyBrowser
       );
 
-      console.log(`📅 Email campaign scheduled: ${jobId}`);
+      console.log(`📅 Email campaign scheduled: ${jobId} for user ${user.email}`);
 
       return c.json({
         success: true,
@@ -396,9 +379,11 @@ Current settings: ${smtpHost}:${smtpPort} (SSL: ${smtpSecure})`;
         console.log(
           `⚡ Starting BATCH email job: ${contacts.length} contacts in batches of ${batchSize}`
         );
+        
+        // UPDATED: Pass notification settings to batch job
         const jobId = await batchService.startBatchJob(
-          emailJob,
-          batchConfig!,
+          emailJob, 
+          batchConfig!, 
           notificationSettings // NEW parameter
         );
 
@@ -417,11 +402,11 @@ Current settings: ${smtpHost}:${smtpPort} (SSL: ${smtpSecure})`;
           `🚀 Starting normal bulk email job: ${contacts.length} contacts`
         );
         emailService.createTransport(emailConfig);
-        emailService
-          .sendBulkEmails(emailJob, notificationSettings)
-          .catch((error) => {
-            console.error("Bulk email sending failed:", error);
-          });
+        
+        // UPDATED: Pass notification settings to bulk email
+        emailService.sendBulkEmails(emailJob, notificationSettings).catch((error) => {
+          console.error("Bulk email sending failed:", error);
+        });
 
         return c.json({
           success: true,
@@ -445,6 +430,7 @@ Current settings: ${smtpHost}:${smtpPort} (SSL: ${smtpSecure})`;
   }
 });
 
+// NEW: Test notification endpoint
 app.post("/test-notification", async (c) => {
   try {
     const user = requireAuth(c);
@@ -455,9 +441,6 @@ app.post("/test-notification", async (c) => {
       return c.json({ success: false, message: "Test email required" }, 400);
     }
 
-    const { notificationService } = await import(
-      "../services/notificationService"
-    );
     const success = await notificationService.sendTestNotification(
       user.id,
       testEmail
@@ -478,8 +461,7 @@ app.post("/test-notification", async (c) => {
   }
 });
 
-// Rest of the existing endpoints remain the same...
-// Get provider info for UI
+// Rest of existing endpoints...
 app.post("/provider-info", async (c) => {
   try {
     const formData = await c.req.formData();
@@ -515,7 +497,6 @@ app.post("/provider-info", async (c) => {
   }
 });
 
-// Scheduled jobs management
 app.get("/scheduled-jobs", (c) => {
   const jobs = schedulerService.getScheduledJobs();
   return c.json({ success: true, data: jobs });
@@ -535,7 +516,6 @@ app.delete("/scheduled-jobs/:id", async (c) => {
   }
 });
 
-// Parse Excel endpoint
 app.post("/parse-excel", async (c) => {
   try {
     const formData = await c.req.formData();
@@ -567,7 +547,6 @@ app.post("/parse-excel", async (c) => {
   }
 });
 
-// Batch control endpoints
 app.get("/batch-status", (c) => {
   const status = batchService.getBatchStatus();
   return c.json({ success: true, data: status });
