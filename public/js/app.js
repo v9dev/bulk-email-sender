@@ -547,23 +547,24 @@ async function sendEmails() {
       return;
     }
 
-    // Convert user's local time to UTC for server
+    // 🎯 Convert user's local time to UTC for server
     const userLocalDate = new Date(scheduledTime);
-
-    // Simple validation: just check if it's in the future
     const now = new Date();
     if (userLocalDate <= now) {
       showAlert("danger", "❌ Scheduled time must be in the future");
       return;
     }
 
-    // Convert to UTC for server
+    // 🔥 FIX: Send UTC time, not raw input
     const utcTime = userLocalDate.toISOString();
 
     formData.set("scheduleEmail", "on");
-    formData.set("scheduledTime", scheduledTime);
+    formData.set("scheduledTime", utcTime); // ✅ Send UTC instead of raw input
     if (notifyEmail) formData.set("notifyEmail", notifyEmail);
     if (notifyBrowser) formData.set("notifyBrowser", "on");
+
+    console.log(`🕐 User selected: ${scheduledTime} (local input)`);
+    console.log(`🌍 Sending to server: ${utcTime} (UTC)`);
   }
 
   // Add file inputs

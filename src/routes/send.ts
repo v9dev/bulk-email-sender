@@ -204,7 +204,7 @@ app.post("/send", async (c) => {
     } catch (testError) {
       console.error("SMTP test error details:", testError);
       let specificError = "SMTP connection test failed.";
-      
+
       if (testError instanceof Error) {
         if (
           testError.message.includes("Invalid login") ||
@@ -330,15 +330,21 @@ app.post("/send", async (c) => {
       : null;
 
     // Create notification settings
-    const notificationSettings = notifyEmail ? {
-      email: notifyEmail,
-      userId: user.id,
-      configName: userConfig.name
-    } : undefined;
+    const notificationSettings = notifyEmail
+      ? {
+          email: notifyEmail,
+          userId: user.id,
+          configName: userConfig.name,
+        }
+      : undefined;
 
     // Handle scheduling vs immediate sending
     if (scheduleEmail) {
-      const scheduledDate = new Date(scheduledTime);
+      // 🔥 FIX: scheduledTime is now UTC from frontend
+      const scheduledDate = new Date(scheduledTime); // Now gets proper UTC
+
+      console.log(`📅 Received UTC time: ${scheduledTime}`);
+      console.log(`⏰ Parsed as: ${scheduledDate.toISOString()}`);
 
       if (scheduledDate <= new Date()) {
         return c.json(
@@ -350,18 +356,20 @@ app.post("/send", async (c) => {
         );
       }
 
-      // UPDATED: Schedule the job with user ID and config name
+      // ✅ Your schedulerService.scheduleJob() already handles UTC correctly!
       const jobId = await schedulerService.scheduleJob(
-        user.id,           // NEW: Pass user ID
+        user.id,
         emailJob,
         batchConfig,
-        scheduledDate,
-        userConfig.name,   // NEW: Pass config name
+        scheduledDate, // UTC time - schedulerService stores this correctly
+        userConfig.name,
         notifyEmail,
         notifyBrowser
       );
 
-      console.log(`📅 Email campaign scheduled: ${jobId} for user ${user.email}`);
+      console.log(
+        `📅 Email campaign scheduled: ${jobId} for user ${user.email}`
+      );
 
       return c.json({
         success: true,
@@ -379,11 +387,11 @@ app.post("/send", async (c) => {
         console.log(
           `⚡ Starting BATCH email job: ${contacts.length} contacts in batches of ${batchSize}`
         );
-        
+
         // UPDATED: Pass notification settings to batch job
         const jobId = await batchService.startBatchJob(
-          emailJob, 
-          batchConfig!, 
+          emailJob,
+          batchConfig!,
           notificationSettings // NEW parameter
         );
 
@@ -402,11 +410,13 @@ app.post("/send", async (c) => {
           `🚀 Starting normal bulk email job: ${contacts.length} contacts`
         );
         emailService.createTransport(emailConfig);
-        
+
         // UPDATED: Pass notification settings to bulk email
-        emailService.sendBulkEmails(emailJob, notificationSettings).catch((error) => {
-          console.error("Bulk email sending failed:", error);
-        });
+        emailService
+          .sendBulkEmails(emailJob, notificationSettings)
+          .catch((error) => {
+            console.error("Bulk email sending failed:", error);
+          });
 
         return c.json({
           success: true,
