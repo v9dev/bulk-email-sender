@@ -48,12 +48,17 @@ app.post("/auth/register", async (c) => {
       const userId = await userDatabase.createUser(email, name, password);
       const token = await userDatabase.createSession(userId);
 
-      // Set session cookie
+      // Auto-detect HTTP vs HTTPS
+      const isHTTPS =
+        c.req.header("x-forwarded-proto") === "https" ||
+        c.req.url.startsWith("https://");
+
       setCookie(c, "session_token", token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: isHTTPS, // Only secure if actually on HTTPS
         sameSite: "lax",
-        maxAge: 24 * 60 * 60, // 24 hours
+        maxAge: 24 * 60 * 60,
+        path: "/",
       });
 
       return c.json({
@@ -114,12 +119,17 @@ app.post("/auth/login", async (c) => {
 
     const token = await userDatabase.createSession(user.id);
 
-    // Set session cookie
+    // Auto-detect HTTP vs HTTPS
+    const isHTTPS =
+      c.req.header("x-forwarded-proto") === "https" ||
+      c.req.url.startsWith("https://");
+
     setCookie(c, "session_token", token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: isHTTPS, // Only secure if actually on HTTPS
       sameSite: "lax",
-      maxAge: 24 * 60 * 60, // 24 hours
+      maxAge: 24 * 60 * 60,
+      path: "/",
     });
 
     return c.json({

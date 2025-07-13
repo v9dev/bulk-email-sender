@@ -178,13 +178,21 @@ function initializeExistingFeatures() {
         sendButton.textContent = "📅 Schedule Campaign";
         scheduleIndicator.classList.remove("d-none");
 
-        // Set minimum datetime to now + 5 minutes
+        // Set minimum datetime to now (in user's local time)
         const now = new Date();
-        now.setMinutes(now.getMinutes() + 5);
-        document.getElementById("scheduledTime").min = now
+        const localNow = new Date(
+          now.getTime() - now.getTimezoneOffset() * 60000
+        );
+        document.getElementById("scheduledTime").min = localNow
           .toISOString()
           .slice(0, 16);
-        document.getElementById("scheduledTime").value = now
+
+        // Set default to 1 hour from now (in user's local time)
+        const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
+        const localOneHour = new Date(
+          oneHourLater.getTime() - oneHourLater.getTimezoneOffset() * 60000
+        );
+        document.getElementById("scheduledTime").value = localOneHour
           .toISOString()
           .slice(0, 16);
 
@@ -196,7 +204,6 @@ function initializeExistingFeatures() {
       }
     });
   }
-
   // Request browser notification permission
   if ("Notification" in window && Notification.permission === "default") {
     Notification.requestPermission();
@@ -204,6 +211,11 @@ function initializeExistingFeatures() {
 
   // Initial load of scheduled jobs
   refreshScheduledJobs();
+
+  const timezoneSpan = document.getElementById("userTimezone");
+  if (timezoneSpan) {
+    timezoneSpan.textContent = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  }
 }
 
 // =================== 🔥 OPTIMIZED EVENT-DRIVEN POLLING SYSTEM ===================
@@ -535,10 +547,24 @@ async function sendEmails() {
       return;
     }
 
+    // 🎯 Convert user's local time to UTC for server
+    const userLocalDate = new Date(scheduledTime);
+    const now = new Date();
+    if (userLocalDate <= now) {
+      showAlert("danger", "❌ Scheduled time must be in the future");
+      return;
+    }
+
+    // 🔥 FIX: Send UTC time, not raw input
+    const utcTime = userLocalDate.toISOString();
+
     formData.set("scheduleEmail", "on");
-    formData.set("scheduledTime", scheduledTime);
+    formData.set("scheduledTime", utcTime); // ✅ Send UTC instead of raw input
     if (notifyEmail) formData.set("notifyEmail", notifyEmail);
     if (notifyBrowser) formData.set("notifyBrowser", "on");
+
+    console.log(`🕐 User selected: ${scheduledTime} (local input)`);
+    console.log(`🌍 Sending to server: ${utcTime} (UTC)`);
   }
 
   // Add file inputs
